@@ -208,14 +208,14 @@ class SchemeGeneratorTests: XCTestCase {
                     Config(name: "PreProd release", type: .release),
                     Config(name: "Prod Release", type: .release),
                 ]
-
+                
                 let project = Project(name: "test", configs: configs, targets: [target, framework])
                 let xcodeProject = try project.generateXcodeProject()
 
                 try expect(xcodeProject.sharedData?.schemes.count) == 3
                 try configVariants.forEach { variantName in
                     let xcscheme = try unwrap(xcodeProject.sharedData?.schemes
-                                                .first(where: { $0.name == "\(target.name) \(variantName)" }))
+                                                .first(where: { $0.name == "\(target.name)\(target.nameDividerChar)\(variantName)" }))
                     let buildActionEntry = try unwrap(xcscheme.buildAction?.buildActionEntries.first)
                     
                     try expect((buildActionEntry.buildableReference.blueprintIdentifier?.count ?? 0) > 0) == true
