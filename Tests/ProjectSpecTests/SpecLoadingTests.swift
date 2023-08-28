@@ -29,7 +29,7 @@ class SpecLoadingTests: XCTestCase {
         describe {
             $0.it("merges includes") {
                 let path = fixturePath + "include_test.yml"
-                let project = try loadSpec(path: path)
+                let project = try loadSpec(path: path, variables: [:])
 
                 try expect(project.name) == "NewName"
                 try expect(project.settingGroups) == [
@@ -38,7 +38,39 @@ class SpecLoadingTests: XCTestCase {
                     "toReplace": Settings(dictionary: ["MY_SETTING2": "VALUE2"]),
                 ]
                 try expect(project.targets) == [
-                    Target(name: "IncludedTargetNew", type: .application, platform: .tvOS, sources: ["NewSource"]),
+                    Target(name: "IncludedTargetNew", type: .application, platform: .tvOS, sources: ["NewSource"], dependencies: [Dependency(type: .package(product: nil), reference: "Yams")]),
+                    Target(name: "NewTarget", type: .application, platform: .iOS, sources: ["template", "target"]),
+                ]
+            }
+
+            $0.it("merges includes with additional") {
+                let path = fixturePath + "include_test.yml"
+                let project = try loadSpec(path: path, variables: ["INCLUDE_ADDITIONAL_YAML": "YES"])
+
+                try expect(project.name) == "NewName"
+                try expect(project.settingGroups) == [
+                    "test": Settings(dictionary: ["MY_SETTING1": "NEW VALUE", "MY_SETTING2": "VALUE2", "MY_SETTING3": "VALUE3", "MY_SETTING4": "${SETTING4}", "MY_SETTING5": "ADDITIONAL"]),
+                    "new": Settings(dictionary: ["MY_SETTING": "VALUE"]),
+                    "toReplace": Settings(dictionary: ["MY_SETTING2": "VALUE2"]),
+                ]
+                try expect(project.targets) == [
+                    Target(name: "IncludedTargetNew", type: .application, platform: .tvOS, sources: ["NewSource"], dependencies: [Dependency(type: .package(product: nil), reference: "SwiftPM"), Dependency(type: .package(product: nil), reference: "Yams")]),
+                    Target(name: "NewTarget", type: .application, platform: .iOS, sources: ["template", "target"]),
+                ]
+            }
+
+            $0.it("merges includes without additional by environment variable") {
+                let path = fixturePath + "include_test.yml"
+                let project = try loadSpec(path: path, variables: ["INCLUDE_ADDITIONAL_YAML": "NO"])
+
+                try expect(project.name) == "NewName"
+                try expect(project.settingGroups) == [
+                    "test": Settings(dictionary: ["MY_SETTING1": "NEW VALUE", "MY_SETTING2": "VALUE2", "MY_SETTING3": "VALUE3", "MY_SETTING4": "${SETTING4}"]),
+                    "new": Settings(dictionary: ["MY_SETTING": "VALUE"]),
+                    "toReplace": Settings(dictionary: ["MY_SETTING2": "VALUE2"]),
+                ]
+                try expect(project.targets) == [
+                    Target(name: "IncludedTargetNew", type: .application, platform: .tvOS, sources: ["NewSource"], dependencies: [Dependency(type: .package(product: nil), reference: "Yams")]),
                     Target(name: "NewTarget", type: .application, platform: .iOS, sources: ["template", "target"]),
                 ]
             }
@@ -98,7 +130,8 @@ class SpecLoadingTests: XCTestCase {
                         entitlements: Plist(path: "paths_test/entitlements"),
                         preBuildScripts: [BuildScript(script: .path("paths_test/preBuildScript"))],
                         postCompileScripts: [BuildScript(script: .path("paths_test/postCompileScript"))],
-                        postBuildScripts: [BuildScript(script: .path("paths_test/postBuildScript"))]
+                        postBuildScripts: [BuildScript(script: .path("paths_test/postBuildScript"))],
+                        scheme: TargetScheme(testPlans: [.init(path: "paths_test/TestPlan.xctestplan")])
                     ),
                     Target(
                         name: "NewTarget",
@@ -129,6 +162,36 @@ class SpecLoadingTests: XCTestCase {
                         postCompileScripts: [BuildScript(script: .path("paths_test/recursive_test/postCompileScript"))],
                         postBuildScripts: [BuildScript(script: .path("paths_test/recursive_test/postBuildScript"))]
                     ),
+                    Target(
+                        name: "app",
+                        type: .application,
+                        platform: .macOS,
+                        sources: ["paths_test/same_relative_path_test/source"],
+                        dependencies: [
+                            Dependency(type: .target, reference: "target1"),
+                            Dependency(type: .target, reference: "target2")
+                        ]
+                    ),
+                    Target(
+                        name: "target1",
+                        type: .framework,
+                        platform: .macOS,
+                        sources: ["paths_test/same_relative_path_test/parent1/same/target1/source"]
+                    ),
+                    Target(
+                        name: "target2",
+                        type: .framework,
+                        platform: .macOS,
+                        sources: ["paths_test/same_relative_path_test/parent2/same/target2/source"]
+                    )
+                ]
+
+                try expect(project.schemes) == [
+                    Scheme(
+                        name: "Scheme",
+                        build: .init(targets: [.init(target: "NewTarget")]),
+                        test: .init(testPlans: [.init(path: "paths_test/TestPlan.xctestplan")])
+                    )
                 ]
             }
 
@@ -316,6 +379,7 @@ class SpecLoadingTests: XCTestCase {
 
     func testProjectSpecParser() {
         let validTarget: [String: Any] = ["type": "application", "platform": "iOS"]
+        let validBreakpoint: [String: Any] = ["type": "Exception", "scope": "All", "stopOnStyle": "Catch"]
         let invalid = "invalid"
 
         describe {
@@ -336,6 +400,93 @@ class SpecLoadingTests: XCTestCase {
                 var target = validTarget
                 target["dependencies"] = [[invalid: "name"]]
                 try expectTargetError(target, .invalidDependency([invalid: "name"]))
+            }
+
+            $0.it("fails with incorrect breakpoint type") {
+                var breakpoint = validBreakpoint
+                breakpoint["type"] = invalid
+                try expectBreakpointError(breakpoint, .unknownBreakpointType(invalid))
+            }
+
+            $0.it("fails with incorrect breakpoint scope") {
+                var target = validBreakpoint
+                target["scope"] = invalid
+                try expectBreakpointError(target, .unknownBreakpointScope(invalid))
+            }
+
+            $0.it("fails with incorrect breakpoint stop on style") {
+                var target = validBreakpoint
+                target["stopOnStyle"] = invalid
+                try expectBreakpointError(target, .unknownBreakpointStopOnStyle(invalid))
+            }
+
+            $0.it("fails with incorrect breakpoint action type") {
+                var breakpoint = validBreakpoint
+                breakpoint["actions"] = [["type": invalid]]
+                try expectBreakpointError(breakpoint, .unknownBreakpointActionType(invalid))
+            }
+
+            $0.it("fails with incorrect breakpoint action conveyance type") {
+                var breakpoint = validBreakpoint
+                breakpoint["actions"] = [["type": "Log", "conveyanceType": invalid]]
+                try expectBreakpointError(breakpoint, .unknownBreakpointActionConveyanceType(invalid))
+            }
+
+            $0.it("fails with incorrect breakpoint action sound name") {
+                var breakpoint = validBreakpoint
+                breakpoint["actions"] = [["type": "Sound", "sound": invalid]]
+                try expectBreakpointError(breakpoint, .unknownBreakpointActionSoundName(invalid))
+            }
+
+            $0.it("parses breakpoints") {
+                let breakpointDictionaries = [
+                    ["type": "File", "path": "Foo.swift", "line": 7, "column": 14, "condition": "bar == nil"],
+                    ["type": "Exception", "scope": "All", "stopOnStyle": "Catch"],
+                    ["type": "SwiftError", "enabled": false],
+                    ["type": "OpenGLError", "ignoreCount": 2],
+                    ["type": "Symbolic", "symbol": "UIViewAlertForUnsatisfiableConstraints", "module": "UIKitCore"],
+                    ["type": "IDEConstraintError", "continueAfterRunningActions": true],
+                    ["type": "IDETestFailure"],
+                ]
+
+                let project = try getProjectSpec(["breakpoints": breakpointDictionaries])
+
+                let expectedBreakpoints = [
+                    Breakpoint(type: .file(path: "Foo.swift", line: 7, column: 14), condition: "bar == nil"),
+                    Breakpoint(type: .exception(.init(scope: .all, stopOnStyle: .catch))),
+                    Breakpoint(type: .swiftError, enabled: false),
+                    Breakpoint(type: .openGLError, ignoreCount: 2),
+                    Breakpoint(type: .symbolic(symbol: "UIViewAlertForUnsatisfiableConstraints", module: "UIKitCore")),
+                    Breakpoint(type: .ideConstraintError, continueAfterRunningActions: true),
+                    Breakpoint(type: .ideTestFailure),
+                ]
+
+                try expect(project.breakpoints) == expectedBreakpoints
+            }
+
+            $0.it("parses breakpoint actions") {
+                var breakpointDicationary = validBreakpoint
+                breakpointDicationary["actions"] = [
+                    ["type": "DebuggerCommand", "command": "po $arg1"],
+                    ["type": "Log", "message": "message", "conveyanceType": "speak"],
+                    ["type": "ShellCommand", "path": "script.sh", "arguments": "argument1, argument2", "waitUntilDone": true],
+                    ["type": "GraphicsTrace"],
+                    ["type": "AppleScript", "script": #"display alert "Hello!""#],
+                    ["type": "Sound", "sound": "Hero"],
+                ]
+
+                let breakpoint = try Breakpoint(jsonDictionary: breakpointDicationary)
+
+                let expectedActions: [Breakpoint.Action] = [
+                    .debuggerCommand("po $arg1"),
+                    .log(.init(message: "message", conveyanceType: .speak)),
+                    .shellCommand(path: "script.sh", arguments: "argument1, argument2", waitUntilDone: true),
+                    .graphicsTrace,
+                    .appleScript(#"display alert "Hello!""#),
+                    .sound(.hero),
+                ]
+
+                try expect(breakpoint.actions) == expectedActions
             }
 
             $0.it("parses sources") {
@@ -712,11 +863,13 @@ class SpecLoadingTests: XCTestCase {
                         "ENV1": true,
                     ],
                     "gatherCoverageData": true,
+                    "coverageTargets": ["t1"],
                     "storeKitConfiguration": "Configuration.storekit",
                     "language": "en",
                     "region": "US",
                     "disableMainThreadChecker": true,
                     "stopOnEveryMainThreadCheckerIssue": true,
+                    "disableThreadPerformanceChecker": true,
                     "environmentVariables": [
                         "TEST_VAR": "TEST_VAL",
                     ],
@@ -732,6 +885,11 @@ class SpecLoadingTests: XCTestCase {
                             "script": "hello",
                         ],
                     ],
+                    "management": [
+                        "shared": false,
+                        "isShown": true,
+                        "orderHint": 10
+                    ],
                 ]
 
                 let target = try Target(name: "test", jsonDictionary: targetDictionary)
@@ -740,15 +898,18 @@ class SpecLoadingTests: XCTestCase {
                     testTargets: ["t1", "t2"],
                     configVariants: ["dev", "app-store"],
                     gatherCoverageData: true,
+                    coverageTargets: ["t1"],
                     storeKitConfiguration: "Configuration.storekit",
                     language: "en",
                     region: "US",
                     disableMainThreadChecker: true,
                     stopOnEveryMainThreadCheckerIssue: true,
+                    disableThreadPerformanceChecker: true,
                     commandLineArguments: ["ENV1": true],
                     environmentVariables: [XCScheme.EnvironmentVariable(variable: "TEST_VAR", value: "TEST_VAL", enabled: true)],
                     preActions: [.init(name: "Do Thing", script: "dothing", settingsTarget: "test")],
-                    postActions: [.init(name: "Run Script", script: "hello")]
+                    postActions: [.init(name: "Run Script", script: "hello")],
+                    management: Scheme.Management(shared: false, orderHint: 10, isShown: true)
                 )
 
                 try expect(target.scheme) == scheme
@@ -780,7 +941,9 @@ class SpecLoadingTests: XCTestCase {
                     "run": [
                         "config": "debug",
                         "launchAutomaticallySubstyle": 2,
+                        "enableGPUFrameCaptureMode": "disabled",
                         "storeKitConfiguration": "Configuration.storekit",
+                        "disableThreadPerformanceChecker": true,
                     ],
                     "test": [
                         "config": "debug",
@@ -790,6 +953,7 @@ class SpecLoadingTests: XCTestCase {
                                 "name": "ExternalProject/Target2",
                                 "parallelizable": true,
                                 "skipped": true,
+                                "location": "test.gpx",
                                 "randomExecutionOrder": true,
                                 "skippedTests": ["Test/testExample()"],
                             ],
@@ -797,6 +961,18 @@ class SpecLoadingTests: XCTestCase {
                         "gatherCoverageData": true,
                         "disableMainThreadChecker": true,
                         "stopOnEveryMainThreadCheckerIssue": true,
+                        "testPlans": [
+                            [
+                                "path": "Path/Plan.xctestplan"
+                            ],
+                            [
+                                "path": "Path/Plan2.xctestplan"
+                            ]
+                        ]
+                    ],
+                    "management": [
+                        "isShown": false,
+                        "orderHint": 4
                     ],
                 ]
                 let scheme = try Scheme(name: "Scheme", jsonDictionary: schemeDictionary)
@@ -821,6 +997,8 @@ class SpecLoadingTests: XCTestCase {
 
                 let expectedRun = Scheme.Run(
                     config: "debug",
+                    enableGPUFrameCaptureMode: .disabled,
+                    disableThreadPerformanceChecker: true,
                     launchAutomaticallySubstyle: "2",
                     storeKitConfiguration: "Configuration.storekit"
                 )
@@ -836,12 +1014,20 @@ class SpecLoadingTests: XCTestCase {
                             targetReference: "ExternalProject/Target2",
                             randomExecutionOrder: true,
                             parallelizable: true,
+                            location: "test.gpx",
                             skipped: true,
                             skippedTests: ["Test/testExample()"]
                         ),
+                    ],
+                    testPlans: [
+                        .init(path: "Path/Plan.xctestplan"),
+                        .init(path: "Path/Plan2.xctestplan")
                     ]
                 )
                 try expect(scheme.test) == expectedTest
+
+                let expectedManagement = Scheme.Management(shared: true, orderHint: 4, isShown: false)
+                try expect(scheme.management) == expectedManagement
             }
 
             $0.it("parses alternate test schemes") {
@@ -856,6 +1042,7 @@ class SpecLoadingTests: XCTestCase {
                             [
                                 "name": "ExternalProject/Target2",
                                 "parallelizable": true,
+                                "location": "New York, NY, USA",
                                 "randomExecutionOrder": true,
                                 "selectedTests": ["Test/testExample()"],
                             ],
@@ -863,6 +1050,9 @@ class SpecLoadingTests: XCTestCase {
                         "gatherCoverageData": true,
                         "disableMainThreadChecker": true,
                         "stopOnEveryMainThreadCheckerIssue": true,
+                    ],
+                    "management": [
+                        "isShown": false
                     ],
                 ]
                 let scheme = try Scheme(name: "Scheme", jsonDictionary: schemeDictionary)
@@ -877,11 +1067,15 @@ class SpecLoadingTests: XCTestCase {
                             targetReference: "ExternalProject/Target2",
                             randomExecutionOrder: true,
                             parallelizable: true,
+                            location: "New York, NY, USA",
                             selectedTests: ["Test/testExample()"]
                         ),
                     ]
                 )
                 try expect(scheme.test) == expectedTest
+
+                let expectedManagement = Scheme.Management(shared: true, orderHint: nil, isShown: false)
+                try expect(scheme.management) == expectedManagement
             }
 
             $0.it("parses schemes variables") {
@@ -1021,6 +1215,10 @@ class SpecLoadingTests: XCTestCase {
                                 "disableMainThreadChecker": true,
                                 "stopOnEveryMainThreadCheckerIssue": false,
                             ],
+                            "management": [
+                                "shared": false,
+                                "orderHint": 8
+                            ],
                         ],
                     ],
                     "schemes": [
@@ -1071,6 +1269,9 @@ class SpecLoadingTests: XCTestCase {
                     ]
                 )
                 try expect(scheme.test) == expectedTest
+
+                let expectedManagement = Scheme.Management(shared: false, orderHint: 8, isShown: nil)
+                try expect(scheme.management) == expectedManagement
             }
 
             $0.it("parses copy files on install") {
@@ -1078,6 +1279,13 @@ class SpecLoadingTests: XCTestCase {
                 targetSource["onlyCopyFilesOnInstall"] = true
                 let target = try Target(name: "Embed Frameworks", jsonDictionary: targetSource)
                 try expect(target.onlyCopyFilesOnInstall) == true
+            }
+
+            $0.it("parses put resources before Sources Build Phase") {
+                var targetSource = validTarget
+                targetSource["putResourcesBeforeSourcesBuildPhase"] = true
+                let target = try Target(name: "Embed Frameworks", jsonDictionary: targetSource)
+                try expect(target.putResourcesBeforeSourcesBuildPhase) == true
             }
 
             $0.it("parses settings") {
@@ -1221,9 +1429,10 @@ class SpecLoadingTests: XCTestCase {
                     "package6": .remote(url: "package.git", versionRequirement: .range(from: "1.2.0", to: "1.2.5")),
                     "package7": .remote(url: "package.git", versionRequirement: .exact("1.2.2")),
                     "package8": .remote(url: "package.git", versionRequirement: .upToNextMajorVersion("4.0.0-beta.5")),
-                    "package9": .local(path: "package/package"),
+                    "package9": .local(path: "package/package", group: nil),
                     "package10": .remote(url: "https://github.com/yonaskolb/XcodeGen", versionRequirement: .exact("1.2.2")),
-                    "XcodeGen": .local(path: "../XcodeGen"),
+                    "XcodeGen": .local(path: "../XcodeGen", group: nil),
+                    "package11": .local(path: "../XcodeGen", group: "Packages/Feature"),
                 ], options: .init(localPackagesGroup: "MyPackages"))
 
                 let dictionary: [String: Any] = [
@@ -1242,6 +1451,7 @@ class SpecLoadingTests: XCTestCase {
                         "package8": ["url": "package.git", "majorVersion": "4.0.0-beta.5"],
                         "package9": ["path": "package/package"],
                         "package10": ["github": "yonaskolb/XcodeGen", "exactVersion": "1.2.2"],
+                        "package11": ["path": "../XcodeGen", "group": "Packages/Feature"],
                     ],
                     "localPackages": ["../XcodeGen"],
                 ]
@@ -1251,8 +1461,8 @@ class SpecLoadingTests: XCTestCase {
 
             $0.it("parses old local package format") {
                 let project = Project(name: "spm", packages: [
-                    "XcodeGen": .local(path: "../XcodeGen"),
-                    "Yams": .local(path: "Yams"),
+                    "XcodeGen": .local(path: "../XcodeGen", group: nil),
+                    "Yams": .local(path: "Yams", group: nil),
                 ], options: .init(localPackagesGroup: "MyPackages"))
 
                 let dictionary: [String: Any] = [
@@ -1299,6 +1509,29 @@ class SpecLoadingTests: XCTestCase {
                 )
 
                 try expect(scheme.run) == runAction
+            }
+
+            $0.it("parses buildToolPlugins") {
+                var target = validTarget
+                let buildToolPlugins: [[String: Any]] = [
+                    [
+                        "plugin": "FirstPlugin",
+                        "package": "FirstPackage"
+                    ],
+                    [
+                        "plugin": "SecondPlugin",
+                        "package": "SecondPackage"
+                    ]
+                ]
+                target["buildToolPlugins"] = buildToolPlugins
+
+                let expectedBuildToolPlugins = [
+                    BuildToolPlugin(plugin: "FirstPlugin", package: "FirstPackage"),
+                    BuildToolPlugin(plugin: "SecondPlugin", package: "SecondPackage")
+                ]
+
+                let parsedTarget = try Target(name: "test", jsonDictionary: target)
+                try expect(parsedTarget.buildToolPlugins) == expectedBuildToolPlugins
             }
         }
     }
@@ -1369,5 +1602,11 @@ private func expectSpecError(_ project: [String: Any], _ expectedError: SpecPars
 private func expectTargetError(_ target: [String: Any], _ expectedError: SpecParsingError, file: String = #file, line: Int = #line) throws {
     try expectError(expectedError, file: file, line: line) {
         _ = try Target(name: "test", jsonDictionary: target)
+    }
+}
+
+private func expectBreakpointError(_ breakpoint: [String: Any], _ expectedError: SpecParsingError, file: String = #file, line: Int = #line) throws {
+    try expectError(expectedError, file: file, line: line) {
+        _ = try Breakpoint(jsonDictionary: breakpoint)
     }
 }

@@ -128,8 +128,8 @@ public class PBXProjGenerator {
 
             var explicitFileType: String?
             var lastKnownFileType: String?
-            let fileType = Xcode.fileType(path: Path(target.filename))
-            if target.platform == .macOS || target.platform == .watchOS || target.type == .framework {
+            let fileType = Xcode.fileType(path: Path(target.filename), productType: target.type)
+            if target.platform == .macOS || target.platform == .watchOS || target.type == .framework || target.type == .extensionKitExtension {
                 explicitFileType = fileType
             } else {
                 lastKnownFileType = fileType
@@ -168,8 +168,8 @@ public class PBXProjGenerator {
                 let packageReference = XCRemoteSwiftPackageReference(repositoryURL: url, versionRequirement: versionRequirement)
                 packageReferences[name] = packageReference
                 addObject(packageReference)
-            case let .local(path):
-                try sourceGenerator.createLocalPackage(path: Path(path))
+            case let .local(path, group):
+                try sourceGenerator.createLocalPackage(path: Path(path), group: group.map { Path($0) })
             }
         }
 
@@ -285,7 +285,10 @@ public class PBXProjGenerator {
             }.flatMap { $0 }
         ).sorted()
 
-        var projectAttributes: [String: Any] = project.attributes
+        let defaultAttributes: [String: Any] = [
+            "BuildIndependentTargetsInParallel": "YES"
+        ]
+        var projectAttributes: [String: Any] = defaultAttributes.merged(project.attributes)
         
         // Set default LastUpgradeCheck if user did not specify
         let lastUpgradeKey = "LastUpgradeCheck"
@@ -407,13 +410,11 @@ public class PBXProjGenerator {
             )
         )
 
-        let productProxy = addObject(
-            PBXContainerItemProxy(
-                containerPortal: .fileReference(projectFileReference),
-                remoteGlobalID: targetObject.product.flatMap(PBXContainerItemProxy.RemoteGlobalID.object),
-                proxyType: .reference,
-                remoteInfo: target
-            )
+        let productProxy = PBXContainerItemProxy(
+            containerPortal: .fileReference(projectFileReference),
+            remoteGlobalID: targetObject.product.flatMap(PBXContainerItemProxy.RemoteGlobalID.object),
+            proxyType: .reference,
+            remoteInfo: target
         )
 
         var path = targetObject.productNameWithExtension()
@@ -423,16 +424,33 @@ public class PBXProjGenerator {
             path = "lib\(tmpPath)"
         }
 
-        let productReferenceProxy = addObject(
-            PBXReferenceProxy(
-                fileType: targetObject.productNameWithExtension().flatMap { Xcode.fileType(path: Path($0)) },
-                path: path,
-                remote: productProxy,
-                sourceTree: .buildProductsDir
-            )
-        )
+        let productReferenceProxyFileType = targetObject.productNameWithExtension()
+            .flatMap { Xcode.fileType(path: Path($0)) }
 
-        productsGroup.children.append(productReferenceProxy)
+        let existingValue = self.pbxProj.referenceProxies.first { referenceProxy in
+            referenceProxy.path == path &&
+            referenceProxy.remote == productProxy &&
+            referenceProxy.sourceTree == .buildProductsDir &&
+            referenceProxy.fileType == productReferenceProxyFileType
+        }
+
+        let productReferenceProxy: PBXReferenceProxy
+        if let existingValue = existingValue {
+            productReferenceProxy = existingValue
+        } else {
+            addObject(productProxy)
+            productReferenceProxy = addObject(
+                PBXReferenceProxy(
+                    fileType: productReferenceProxyFileType,
+                    path: path,
+                    remote: productProxy,
+                    sourceTree: .buildProductsDir
+                )
+            )
+
+            productsGroup.children.append(productReferenceProxy)
+        }
+
 
         let targetDependency = addObject(
             PBXTargetDependency(
@@ -670,6 +688,7 @@ public class PBXProjGenerator {
         var copyWatchReferences: [PBXBuildFile] = []
         var packageDependencies: [XCSwiftPackageProductDependency] = []
         var extensions: [PBXBuildFile] = []
+        var extensionKitExtensions: [PBXBuildFile] = []
         var systemExtensions: [PBXBuildFile] = []
         var appClips: [PBXBuildFile] = []
         var carthageFrameworksToEmbed: [String] = []
@@ -736,8 +755,13 @@ public class PBXProjGenerator {
                     // custom copy takes precedence
                     customCopyDependenciesReferences.append(embedFile)
                 } else if dependencyTarget.type.isExtension {
-                    // embed app extension
-                    extensions.append(embedFile)
+                    if dependencyTarget.type == .extensionKitExtension {
+                        // embed extension kit extension
+                        extensionKitExtensions.append(embedFile)
+                    } else {
+                        // embed app extension
+                        extensions.append(embedFile)
+                    }
                 } else if dependencyTarget.type.isSystemExtension {
                     // embed system extension
                     systemExtensions.append(embedFile)
@@ -1008,6 +1032,23 @@ public class PBXProjGenerator {
         
         carthageFrameworksToEmbed = carthageFrameworksToEmbed.uniqued()
 
+        // Adding `Build Tools Plug-ins` as a dependency to the target
+        for buildToolPlugin in target.buildToolPlugins {
+            let packageReference = packageReferences[buildToolPlugin.package]
+            if packageReference == nil, !localPackageReferences.contains(buildToolPlugin.package) {
+                continue
+            }
+
+            let packageDependency = addObject(
+                XCSwiftPackageProductDependency(productName: buildToolPlugin.plugin, package: packageReference, isPlugin: true)
+            )
+            let targetDependency = addObject(
+                PBXTargetDependency(product: packageDependency)
+            )
+
+            dependencies.append(targetDependency)
+        }
+        
         var buildPhases: [PBXBuildPhase] = []
 
         func getBuildFilesForSourceFiles(_ sourceFiles: [SourceFile]) -> [PBXBuildFile] {
@@ -1077,6 +1118,18 @@ public class PBXProjGenerator {
             }
         }
 
+        func addResourcesBuildPhase() {
+            let resourcesBuildPhaseFiles = getBuildFilesForPhase(.resources) + copyResourcesReferences
+            if !resourcesBuildPhaseFiles.isEmpty {
+                let resourcesBuildPhase = addObject(PBXResourcesBuildPhase(files: resourcesBuildPhaseFiles))
+                buildPhases.append(resourcesBuildPhase)
+            }
+        }
+
+        if target.putResourcesBeforeSourcesBuildPhase {
+            addResourcesBuildPhase()
+        }
+
         let sourcesBuildPhaseFiles = getBuildFilesForPhase(.sources)
         let shouldSkipSourcesBuildPhase = sourcesBuildPhaseFiles.isEmpty && target.type.canSkipCompileSourcesBuildPhase
         if !shouldSkipSourcesBuildPhase {
@@ -1086,10 +1139,8 @@ public class PBXProjGenerator {
 
         buildPhases += try target.postCompileScripts.map { try generateBuildScript(targetName: target.name, buildScript: $0) }
 
-        let resourcesBuildPhaseFiles = getBuildFilesForPhase(.resources) + copyResourcesReferences
-        if !resourcesBuildPhaseFiles.isEmpty {
-            let resourcesBuildPhase = addObject(PBXResourcesBuildPhase(files: resourcesBuildPhaseFiles))
-            buildPhases.append(resourcesBuildPhase)
+        if !target.putResourcesBeforeSourcesBuildPhase {
+            addResourcesBuildPhase()
         }
 
         let swiftObjCInterfaceHeader = project.getCombinedBuildSetting("SWIFT_OBJC_INTERFACE_HEADER_NAME", target: target, config: project.configs[0]) as? String
@@ -1130,7 +1181,7 @@ public class PBXProjGenerator {
                     name: "Carthage",
                     inputPaths: inputPaths,
                     outputPaths: outputPaths,
-                    shellPath: "/bin/sh",
+                    shellPath: "/bin/sh -l",
                     shellScript: "\(carthageExecutable) copy-frameworks\n"
                 )
             )
@@ -1156,8 +1207,26 @@ public class PBXProjGenerator {
 
         if !extensions.isEmpty {
 
-            let copyFilesPhase = addObject(                
-                getPBXCopyFilesBuildPhase(dstSubfolderSpec: .plugins, name: "Embed App Extensions", files: extensions)
+            let copyFilesPhase = addObject(
+                getPBXCopyFilesBuildPhase(dstSubfolderSpec: .plugins, name: "Embed Foundation Extensions", files: extensions)
+            )
+
+            buildPhases.append(copyFilesPhase)
+        }
+
+        if !extensionKitExtensions.isEmpty {
+
+            let copyFilesPhase = addObject(
+                getPBXCopyFilesBuildPhase(dstSubfolderSpec: .productsDirectory, dstPath: "$(EXTENSIONS_FOLDER_PATH)", name: "Embed ExtensionKit Extensions", files: extensionKitExtensions)
+            )
+            buildPhases.append(copyFilesPhase)
+        }
+
+        if !systemExtensions.isEmpty {
+
+            let copyFilesPhase = addObject(
+                // With parameters below the Xcode will show "Destination: System Extensions".
+                getPBXCopyFilesBuildPhase(dstSubfolderSpec: .productsDirectory, dstPath: "$(SYSTEM_EXTENSIONS_FOLDER_PATH)", name: "Embed System Extensions", files: systemExtensions)
             )
 
             buildPhases.append(copyFilesPhase)
@@ -1522,7 +1591,7 @@ extension Platform {
     /// - returns: `true` for platforms that the app store requires simulator slices to be stripped.
     public var requiresSimulatorStripping: Bool {
         switch self {
-        case .iOS, .tvOS, .watchOS:
+        case .iOS, .tvOS, .watchOS, .visionOS:
             return true
         case .macOS:
             return false

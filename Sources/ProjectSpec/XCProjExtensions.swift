@@ -48,8 +48,8 @@ extension PBXProductType {
 
     public var canSkipCompileSourcesBuildPhase: Bool {
         switch self {
-        case .bundle, .stickerPack, .messagesApplication:
-            // Bundles, sticker packs and simple messages applications without sources should not include a
+        case .bundle, .watch2App, .stickerPack, .messagesApplication:
+            // Bundles, watch apps, sticker packs and simple messages applications without sources should not include a
             // compile sources build phase. Doing so can cause Xcode to produce an error on build.
             return true
         default:
@@ -86,11 +86,12 @@ extension Platform {
         case .watchOS: return "⌚️"
         case .tvOS: return "📺"
         case .macOS: return "🖥"
+        case .visionOS: return "🕶️"
         }
     }
 }
 
-extension Target {
+extension ProjectTarget {
     public var shouldExecuteOnLaunch: Bool {
         // This is different from `type.isExecutable`, because we don't want to "run" a test
         type.isApp || type.isExtension || type.isSystemExtension || type == .commandLineTool
@@ -106,3 +107,30 @@ extension XCScheme.CommandLineArguments {
         self.init(arguments: args)
     }
 }
+
+extension BreakpointExtensionID {
+
+    init(string: String) throws {
+        if let id = BreakpointExtensionID(rawValue: "Xcode.Breakpoint.\(string)Breakpoint") {
+            self = id
+        } else if let id = BreakpointExtensionID(rawValue: string) {
+            self = id
+        } else {
+            throw SpecParsingError.unknownBreakpointType(string)
+        }
+    }
+}
+
+extension BreakpointActionExtensionID {
+
+    init(string: String) throws {
+        if let type = BreakpointActionExtensionID(rawValue: "Xcode.BreakpointAction.\(string)") {
+            self = type
+        } else if let type = BreakpointActionExtensionID(rawValue: string) {
+            self = type
+        } else {
+            throw SpecParsingError.unknownBreakpointActionType(string)
+        }
+    }
+}
+

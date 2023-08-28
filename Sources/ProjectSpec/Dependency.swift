@@ -56,7 +56,7 @@ public struct Dependency: Equatable {
         public static let `default` = dynamic
     }
 
-    public enum DependencyType: Equatable {
+    public enum DependencyType: Hashable {
         case target
         case framework
         case carthage(findFrameworks: Bool?, linkType: CarthageLinkType)
@@ -83,6 +83,7 @@ extension Dependency {
 extension Dependency: Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(reference)
+        hasher.combine(type)
     }
 }
 

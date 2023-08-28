@@ -6,14 +6,24 @@ packages:
   SwiftRoaring:
     url: https://github.com/piotte13/SwiftRoaring
     majorVersion: 1.0.4
-  XcodeGen: 
+  Prefire:
+    url: https://github.com/BarredEwe/Prefire
+    majorVersion: 1.4.1
+  XcodeGen:
     path: ../../.. #XcodeGen itself
+    group: SPM
 targets:
   App:
     type: application
     platform: iOS
     sources: [SPM]
-    scheme: {}
+    scheme:
+      testTargets:
+        - package: XcodeGen/XcodeGenKitTests
+        - Tests
+    buildToolPlugins:
+      - plugin: PrefirePlaybookPlugin
+        package: Prefire
     dependencies:
       - package: Codability
         weak: true
@@ -21,6 +31,7 @@ targets:
         product: SwiftRoaringDynamic
         embed: true
       - target: StaticLibrary
+      - package: XcodeGen
   Tests:
     type: bundle.unit-test
     platform: iOS
