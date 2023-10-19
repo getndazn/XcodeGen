@@ -14,6 +14,7 @@ public struct Scheme: Equatable {
     public var analyze: Analyze?
     public var test: Test?
     public var profile: Profile?
+    public var management: Management?
 
     public init(
         name: String,
@@ -22,7 +23,8 @@ public struct Scheme: Equatable {
         test: Test? = nil,
         profile: Profile? = nil,
         analyze: Analyze? = nil,
-        archive: Archive? = nil
+        archive: Archive? = nil,
+        management: Management? = nil
     ) {
         self.name = name
         self.build = build
@@ -31,6 +33,29 @@ public struct Scheme: Equatable {
         self.profile = profile
         self.analyze = analyze
         self.archive = archive
+        self.management = management
+    }
+
+    public struct Management: Equatable {
+        public static let sharedDefault = true
+
+        public var shared: Bool
+        public var orderHint: Int?
+        public var isShown: Bool?
+
+        public init?(
+            shared: Bool = Scheme.Management.sharedDefault,
+            orderHint: Int? = nil,
+            isShown: Bool? = nil
+        ) {
+            if shared == Scheme.Management.sharedDefault, orderHint == nil, isShown == nil {
+                return nil
+            }
+
+            self.shared = shared
+            self.orderHint = orderHint
+            self.isShown = isShown
+        }
     }
 
     public struct SimulateLocation: Equatable {
@@ -102,6 +127,7 @@ public struct Scheme: Equatable {
     public struct Run: BuildAction {
         public static let disableMainThreadCheckerDefault = false
         public static let stopOnEveryMainThreadCheckerIssueDefault = false
+        public static let disableThreadPerformanceCheckerDefault = false
         public static let debugEnabledDefault = true
 
         public var config: String?
@@ -109,8 +135,11 @@ public struct Scheme: Equatable {
         public var preActions: [ExecutionAction]
         public var postActions: [ExecutionAction]
         public var environmentVariables: [XCScheme.EnvironmentVariable]
+        public var enableGPUFrameCaptureMode: XCScheme.LaunchAction.GPUFrameCaptureMode
+        public var enableGPUValidationMode: XCScheme.LaunchAction.GPUValidationMode
         public var disableMainThreadChecker: Bool
         public var stopOnEveryMainThreadCheckerIssue: Bool
+        public var disableThreadPerformanceChecker: Bool
         public var language: String?
         public var region: String?
         public var askForAppToLaunch: Bool?
@@ -123,14 +152,17 @@ public struct Scheme: Equatable {
         public var macroExpansion: String?
 
         public init(
-            config: String,
+            config: String? = nil,
             executable: String? = nil,
             commandLineArguments: [String: Bool] = [:],
             preActions: [ExecutionAction] = [],
             postActions: [ExecutionAction] = [],
             environmentVariables: [XCScheme.EnvironmentVariable] = [],
+            enableGPUFrameCaptureMode: XCScheme.LaunchAction.GPUFrameCaptureMode = XCScheme.LaunchAction.defaultGPUFrameCaptureMode,
+            enableGPUValidationMode: XCScheme.LaunchAction.GPUValidationMode = XCScheme.LaunchAction.GPUValidationMode.enabled,
             disableMainThreadChecker: Bool = disableMainThreadCheckerDefault,
             stopOnEveryMainThreadCheckerIssue: Bool = stopOnEveryMainThreadCheckerIssueDefault,
+            disableThreadPerformanceChecker: Bool = disableThreadPerformanceCheckerDefault,
             language: String? = nil,
             region: String? = nil,
             askForAppToLaunch: Bool? = nil,
@@ -147,7 +179,10 @@ public struct Scheme: Equatable {
             self.postActions = postActions
             self.environmentVariables = environmentVariables
             self.disableMainThreadChecker = disableMainThreadChecker
+            self.enableGPUFrameCaptureMode = enableGPUFrameCaptureMode
+            self.enableGPUValidationMode = enableGPUValidationMode
             self.stopOnEveryMainThreadCheckerIssue = stopOnEveryMainThreadCheckerIssue
+            self.disableThreadPerformanceChecker = disableThreadPerformanceChecker
             self.language = language
             self.region = region
             self.askForAppToLaunch = askForAppToLaunch
@@ -169,7 +204,7 @@ public struct Scheme: Equatable {
 
         public var config: String?
         public var gatherCoverageData: Bool
-        public var coverageTargets: [TargetReference]
+        public var coverageTargets: [TestableTargetReference]
         public var disableMainThreadChecker: Bool
         public var commandLineArguments: [String: Bool]
         public var targets: [TestTarget]
@@ -182,23 +217,27 @@ public struct Scheme: Equatable {
         public var customLLDBInit: String?
         public var captureScreenshotsAutomatically: Bool
         public var deleteScreenshotsWhenEachTestSucceeds: Bool
+        public var testPlans: [TestPlan]
 
         public struct TestTarget: Equatable, ExpressibleByStringLiteral {
+            
             public static let randomExecutionOrderDefault = false
             public static let parallelizableDefault = false
 
             public var name: String { targetReference.name }
-            public let targetReference: TargetReference
+            public let targetReference: TestableTargetReference
             public var randomExecutionOrder: Bool
             public var parallelizable: Bool
+            public var location: String?
             public var skipped: Bool
             public var skippedTests: [String]
             public var selectedTests: [String]
 
             public init(
-                targetReference: TargetReference,
+                targetReference: TestableTargetReference,
                 randomExecutionOrder: Bool = randomExecutionOrderDefault,
                 parallelizable: Bool = parallelizableDefault,
+                location: String? = nil,
                 skipped: Bool = false,
                 skippedTests: [String] = [],
                 selectedTests: [String] = []
@@ -206,6 +245,7 @@ public struct Scheme: Equatable {
                 self.targetReference = targetReference
                 self.randomExecutionOrder = randomExecutionOrder
                 self.parallelizable = parallelizable
+                self.location = location
                 self.skipped = skipped
                 self.skippedTests = skippedTests
                 self.selectedTests = selectedTests
@@ -213,9 +253,10 @@ public struct Scheme: Equatable {
 
             public init(stringLiteral value: String) {
                 do {
-                    targetReference = try TargetReference(value)
+                    targetReference = try TestableTargetReference(value)
                     randomExecutionOrder = false
                     parallelizable = false
+                    location = nil
                     skipped = false
                     skippedTests = []
                     selectedTests = []
@@ -226,9 +267,9 @@ public struct Scheme: Equatable {
         }
 
         public init(
-            config: String,
+            config: String? = nil,
             gatherCoverageData: Bool = gatherCoverageDataDefault,
-            coverageTargets: [TargetReference] = [],
+            coverageTargets: [TestableTargetReference] = [],
             disableMainThreadChecker: Bool = disableMainThreadCheckerDefault,
             randomExecutionOrder: Bool = false,
             parallelizable: Bool = false,
@@ -237,6 +278,7 @@ public struct Scheme: Equatable {
             preActions: [ExecutionAction] = [],
             postActions: [ExecutionAction] = [],
             environmentVariables: [XCScheme.EnvironmentVariable] = [],
+            testPlans: [TestPlan] = [],
             language: String? = nil,
             region: String? = nil,
             debugEnabled: Bool = debugEnabledDefault,
@@ -253,6 +295,7 @@ public struct Scheme: Equatable {
             self.preActions = preActions
             self.postActions = postActions
             self.environmentVariables = environmentVariables
+            self.testPlans = testPlans
             self.language = language
             self.region = region
             self.debugEnabled = debugEnabled
@@ -282,7 +325,7 @@ public struct Scheme: Equatable {
         public var askForAppToLaunch: Bool?
 
         public init(
-            config: String,
+            config: String? = nil,
             commandLineArguments: [String: Bool] = [:],
             preActions: [ExecutionAction] = [],
             postActions: [ExecutionAction] = [],
@@ -311,7 +354,7 @@ public struct Scheme: Equatable {
         public var preActions: [ExecutionAction]
         public var postActions: [ExecutionAction]
         public init(
-            config: String,
+            config: String? = nil,
             customArchiveName: String? = nil,
             revealArchiveInOrganizer: Bool = revealArchiveInOrganizerDefault,
             preActions: [ExecutionAction] = [],
@@ -326,13 +369,24 @@ public struct Scheme: Equatable {
     }
 
     public struct BuildTarget: Equatable, Hashable {
-        public var target: TargetReference
+        public var target: TestableTargetReference
         public var buildTypes: [BuildType]
 
-        public init(target: TargetReference, buildTypes: [BuildType] = BuildType.all) {
+        public init(target: TestableTargetReference, buildTypes: [BuildType] = BuildType.all) {
             self.target = target
             self.buildTypes = buildTypes
         }
+    }
+}
+
+extension Scheme: PathContainer {
+
+    static var pathProperties: [PathProperty] {
+        [
+            .dictionary([
+                .object("test", Test.pathProperties),
+            ]),
+        ]
     }
 }
 
@@ -381,6 +435,35 @@ extension Scheme.SimulateLocation: JSONEncodable {
     }
 }
 
+extension Scheme.Management: JSONObjectConvertible {
+
+    public init(jsonDictionary: JSONDictionary) throws {
+        shared = jsonDictionary.json(atKeyPath: "shared") ?? Scheme.Management.sharedDefault
+        orderHint = jsonDictionary.json(atKeyPath: "orderHint")
+        isShown = jsonDictionary.json(atKeyPath: "isShown")
+    }
+}
+
+extension Scheme.Management: JSONEncodable {
+    public func toJSONValue() -> Any {
+        var dict: [String: Any?] = [:]
+
+        if shared != Scheme.Management.sharedDefault {
+            dict["shared"] = shared
+        }
+
+        if let isShown = isShown {
+            dict["isShown"] = isShown
+        }
+
+        if let orderHint = orderHint {
+            dict["orderHint"] = orderHint
+        }
+
+        return dict
+    }
+}
+
 extension Scheme.Run: JSONObjectConvertible {
 
     public init(jsonDictionary: JSONDictionary) throws {
@@ -389,8 +472,19 @@ extension Scheme.Run: JSONObjectConvertible {
         preActions = jsonDictionary.json(atKeyPath: "preActions") ?? []
         postActions = jsonDictionary.json(atKeyPath: "postActions") ?? []
         environmentVariables = try XCScheme.EnvironmentVariable.parseAll(jsonDictionary: jsonDictionary)
+        if let gpuFrameCaptureMode: String = jsonDictionary.json(atKeyPath: "enableGPUFrameCaptureMode") {
+            enableGPUFrameCaptureMode = XCScheme.LaunchAction.GPUFrameCaptureMode.fromJSONValue(gpuFrameCaptureMode)
+        } else {
+            enableGPUFrameCaptureMode = XCScheme.LaunchAction.defaultGPUFrameCaptureMode
+        }
+        if let gpuValidationMode: String = jsonDictionary.json(atKeyPath: "enableGPUValidationMode") {
+            enableGPUValidationMode = XCScheme.LaunchAction.GPUValidationMode.fromJSONValue(gpuValidationMode)
+        } else {
+            enableGPUValidationMode = XCScheme.LaunchAction.defaultGPUValidationMode
+        }
         disableMainThreadChecker = jsonDictionary.json(atKeyPath: "disableMainThreadChecker") ?? Scheme.Run.disableMainThreadCheckerDefault
         stopOnEveryMainThreadCheckerIssue = jsonDictionary.json(atKeyPath: "stopOnEveryMainThreadCheckerIssue") ?? Scheme.Run.stopOnEveryMainThreadCheckerIssueDefault
+        disableThreadPerformanceChecker = jsonDictionary.json(atKeyPath: "disableThreadPerformanceChecker") ?? Scheme.Run.disableThreadPerformanceCheckerDefault
         language = jsonDictionary.json(atKeyPath: "language")
         region = jsonDictionary.json(atKeyPath: "region")
         debugEnabled = jsonDictionary.json(atKeyPath: "debugEnabled") ?? Scheme.Run.debugEnabledDefault
@@ -430,12 +524,24 @@ extension Scheme.Run: JSONEncodable {
             "macroExpansion": macroExpansion
         ]
 
+        if enableGPUFrameCaptureMode != XCScheme.LaunchAction.defaultGPUFrameCaptureMode {
+            dict["enableGPUFrameCaptureMode"] = enableGPUFrameCaptureMode.toJSONValue()
+        }
+        
+        if enableGPUValidationMode != XCScheme.LaunchAction.defaultGPUValidationMode {
+            dict["enableGPUValidationMode"] = enableGPUValidationMode.toJSONValue()
+        }
+
         if disableMainThreadChecker != Scheme.Run.disableMainThreadCheckerDefault {
             dict["disableMainThreadChecker"] = disableMainThreadChecker
         }
 
         if stopOnEveryMainThreadCheckerIssue != Scheme.Run.stopOnEveryMainThreadCheckerIssueDefault {
             dict["stopOnEveryMainThreadCheckerIssue"] = stopOnEveryMainThreadCheckerIssue
+        }
+
+        if disableThreadPerformanceChecker != Scheme.Run.disableThreadPerformanceCheckerDefault {
+            dict["disableThreadPerformanceChecker"] = disableThreadPerformanceChecker
         }
 
         if debugEnabled != Scheme.Run.debugEnabledDefault {
@@ -455,18 +561,42 @@ extension Scheme.Run: JSONEncodable {
     }
 }
 
+extension Scheme.Test: PathContainer {
+
+    static var pathProperties: [PathProperty] {
+        [
+            .object("testPlans", TestPlan.pathProperties),
+        ]
+    }
+}
+
 extension Scheme.Test: JSONObjectConvertible {
 
     public init(jsonDictionary: JSONDictionary) throws {
         config = jsonDictionary.json(atKeyPath: "config")
         gatherCoverageData = jsonDictionary.json(atKeyPath: "gatherCoverageData") ?? Scheme.Test.gatherCoverageDataDefault
-        coverageTargets = try (jsonDictionary.json(atKeyPath: "coverageTargets") ?? []).map { try TargetReference($0) }
+
+        if let coverages = jsonDictionary["coverageTargets"] as? [Any] {
+            coverageTargets = try coverages.compactMap { target in
+                if let string = target as? String {
+                    return try TestableTargetReference(string)
+                } else if let dictionary = target as? JSONDictionary,
+                          let target: TestableTargetReference = try? .init(jsonDictionary: dictionary) {
+                    return target
+                } else {
+                    return nil
+                }
+            }
+        } else {
+            coverageTargets = []
+        }
+        
         disableMainThreadChecker = jsonDictionary.json(atKeyPath: "disableMainThreadChecker") ?? Scheme.Test.disableMainThreadCheckerDefault
         commandLineArguments = jsonDictionary.json(atKeyPath: "commandLineArguments") ?? [:]
         if let targets = jsonDictionary["targets"] as? [Any] {
             self.targets = try targets.compactMap { target in
                 if let string = target as? String {
-                    return try TestTarget(targetReference: TargetReference(string))
+                    return try TestTarget(targetReference: TestableTargetReference(string))
                 } else if let dictionary = target as? JSONDictionary {
                     return try TestTarget(jsonDictionary: dictionary)
                 } else {
@@ -479,6 +609,7 @@ extension Scheme.Test: JSONObjectConvertible {
         preActions = jsonDictionary.json(atKeyPath: "preActions") ?? []
         postActions = jsonDictionary.json(atKeyPath: "postActions") ?? []
         environmentVariables = try XCScheme.EnvironmentVariable.parseAll(jsonDictionary: jsonDictionary)
+        testPlans = try (jsonDictionary.json(atKeyPath: "testPlans") ?? []).map { try TestPlan(jsonDictionary: $0) }
         language = jsonDictionary.json(atKeyPath: "language")
         region = jsonDictionary.json(atKeyPath: "region")
         debugEnabled = jsonDictionary.json(atKeyPath: "debugEnabled") ?? Scheme.Test.debugEnabledDefault
@@ -496,6 +627,7 @@ extension Scheme.Test: JSONEncodable {
             "preActions": preActions.map { $0.toJSONValue() },
             "postActions": postActions.map { $0.toJSONValue() },
             "environmentVariables": environmentVariables.map { $0.toJSONValue() },
+            "testPlans": testPlans.map { $0.toJSONValue() },
             "config": config,
             "language": language,
             "region": region,
@@ -533,9 +665,20 @@ extension Scheme.Test: JSONEncodable {
 extension Scheme.Test.TestTarget: JSONObjectConvertible {
 
     public init(jsonDictionary: JSONDictionary) throws {
-        targetReference = try TargetReference(jsonDictionary.json(atKeyPath: "name"))
+        if let name: String = jsonDictionary.json(atKeyPath: "name")  {
+            targetReference = try TestableTargetReference(name)
+        } else if let local: String = jsonDictionary.json(atKeyPath: "local") {
+            self.targetReference = TestableTargetReference.local(local)
+        } else if let project: String = jsonDictionary.json(atKeyPath: "project") {
+            self.targetReference = TestableTargetReference.project(project)
+        } else if let package: String = jsonDictionary.json(atKeyPath: "package") {
+            self.targetReference = TestableTargetReference.package(package)
+        } else {
+            self.targetReference = try jsonDictionary.json(atKeyPath: "target")
+        }
         randomExecutionOrder = jsonDictionary.json(atKeyPath: "randomExecutionOrder") ?? Scheme.Test.TestTarget.randomExecutionOrderDefault
         parallelizable = jsonDictionary.json(atKeyPath: "parallelizable") ?? Scheme.Test.TestTarget.parallelizableDefault
+        location = jsonDictionary.json(atKeyPath: "location") ?? nil
         skipped = jsonDictionary.json(atKeyPath: "skipped") ?? false
         skippedTests = jsonDictionary.json(atKeyPath: "skippedTests") ?? []
         selectedTests = jsonDictionary.json(atKeyPath: "selectedTests") ?? []
@@ -558,6 +701,9 @@ extension Scheme.Test.TestTarget: JSONEncodable {
         }
         if parallelizable != Scheme.Test.TestTarget.parallelizableDefault {
             dict["parallelizable"] = parallelizable
+        }
+        if let location = location {
+            dict["location"] = location
         }
         if skipped {
             dict["skipped"] = skipped
@@ -647,6 +793,7 @@ extension Scheme: NamedJSONDictionaryConvertible {
         analyze = jsonDictionary.json(atKeyPath: "analyze")
         profile = jsonDictionary.json(atKeyPath: "profile")
         archive = jsonDictionary.json(atKeyPath: "archive")
+        management = jsonDictionary.json(atKeyPath: "management")
     }
 }
 
@@ -659,6 +806,7 @@ extension Scheme: JSONEncodable {
             "analyze": analyze?.toJSONValue(),
             "profile": profile?.toJSONValue(),
             "archive": archive?.toJSONValue(),
+            "management": management?.toJSONValue(),
         ] as [String: Any?]
     }
 }
@@ -685,7 +833,7 @@ extension Scheme.Build: JSONObjectConvertible {
             } else {
                 buildTypes = BuildType.all
             }
-            let target = try TargetReference(targetRepr)
+            let target = try TestableTargetReference(targetRepr)
             targets.append(Scheme.BuildTarget(target: target, buildTypes: buildTypes))
         }
         self.targets = targets.sorted { $0.target.name < $1.target.name }
@@ -803,5 +951,61 @@ extension XCScheme.EnvironmentVariable: JSONEncodable {
         }
 
         return dict
+    }
+}
+
+extension XCScheme.LaunchAction.GPUFrameCaptureMode: JSONEncodable {
+    public func toJSONValue() -> Any {
+        switch self {
+        case .autoEnabled:
+            return "autoEnabled"
+        case .metal:
+            return "metal"
+        case .openGL:
+            return "openGL"
+        case .disabled:
+            return "disabled"
+        }
+    }
+
+    static func fromJSONValue(_ string: String) -> XCScheme.LaunchAction.GPUFrameCaptureMode {
+        switch string {
+        case "autoEnabled":
+            return .autoEnabled
+        case "metal":
+            return .metal
+        case "openGL":
+            return .openGL
+        case "disabled":
+            return .disabled
+        default:
+            fatalError("Invalid enableGPUFrameCaptureMode value. Valid values are: autoEnabled, metal, openGL, disabled")
+        }
+    }
+}
+
+extension XCScheme.LaunchAction.GPUValidationMode: JSONEncodable {
+    public func toJSONValue() -> Any {
+        switch self {
+        case .enabled:
+            return "enabled"
+        case .disabled:
+            return "disabled"
+        case .extended:
+            return "extended"
+        }
+    }
+    
+    static func fromJSONValue(_ string: String) -> XCScheme.LaunchAction.GPUValidationMode {
+        switch string {
+        case "enabled":
+            return .enabled
+        case "disabled":
+            return .disabled
+        case "extended":
+            return .extended
+        default:
+            fatalError("Invalid enableGPUValidationMode value. Valid values are: enable, disable, extended")
+        }
     }
 }

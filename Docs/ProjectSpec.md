@@ -1,38 +1,58 @@
 # Project Spec
 
-### Index
+The project spec can be written in either YAML or JSON. All the examples below use YAML.
 
-- [General](#general)
+- [x] required property
+- [ ] optional property
+
+Some of the YAML examples below don't show all the required properties. For example not all target examples will have a platform or type, even though they are required.
+
+You can also use environment variables in your configuration file, by using `${SOME_VARIABLE}` in a string.
+
 - [Project](#project)
-	- [Include](#include)
-	- [Options](#options)
-	- [Configs](#configs)
-	- [Setting Groups](#setting-groups)
+  - [Include](#include)
+  - [Options](#options)
+  - [GroupOrdering](#groupordering)
+  - [FileType](#filetype)
+  - [Breakpoints](#breakpoints)
+    - [Breakpoint Action](#breakpoint-action)
+  - [Configs](#configs)
+  - [Setting Groups](#setting-groups)
 - [Settings](#settings)
 - [Target](#target)
-	- [Product Type](#product-type)
-	- [Platform](#platform)
-	- [Sources](#sources)
-	- [Config Files](#config-files)
-	- [Settings](#settings)
-	- [Build Script](#build-script)
-	- [Build Rule](#build-rule)
-	- [Dependency](#dependency)
-	- [Target Scheme](#target-scheme)
-	- [Legacy Target](#legacy-target)
+  - [Product Type](#product-type)
+  - [Platform](#platform)
+  - [Sources](#sources)
+    - [Target Source](#target-source)
+  - [Dependency](#dependency)
+  - [Config Files](#config-files)
+  - [Plist](#plist)
+  - [Build Tool Plug-ins](#build-tool-plug-ins)
+  - [Build Script](#build-script)
+  - [Build Rule](#build-rule)
+  - [Target Scheme](#target-scheme)
+  - [Legacy Target](#legacy-target)
 - [Aggregate Target](#aggregate-target)
 - [Target Template](#target-template)
 - [Scheme](#scheme)
+  - [Build](#build)
+  - [Common Build Action options](#common-build-action-options)
+  - [Execution Action](#execution-action)
+  - [Run Action](#run-action)
+  - [Test Action](#test-action)
+    - [Test Target](#test-target)
+    - [Other Parameters](#other-parameters)
+    - [Testable Target Reference](#testable-target-reference)
+  - [Archive Action](#archive-action)
+  - [Simulate Location](#simulate-location)
+  - [Scheme Management](#scheme-management)
+  - [Environment Variable](#environment-variable)
+  - [Test Plan](#test-plan)
 - [Scheme Template](#scheme-template)
 - [Swift Package](#swift-package)
-
-## General
-
-The project spec can be written in either YAML or JSON. All the examples below use YAML.
-
-Required properties are marked with checkbox. Some of the YAML examples don't show all the required properties. For example not all target examples will have a platform or type, even though they are required.
-
-You can also use environment variables in your configuration file, by using `${SOME_VARIABLE}` in a string.
+  - [Remote Package](#remote-package)
+  - [Local Package](#local-package)
+- [Project Reference](#project-reference)
 
 ## Project
 
@@ -40,6 +60,7 @@ You can also use environment variables in your configuration file, by using `${S
 - [ ] **include**:  **[Include](#include)** - One or more paths to other specs
 - [ ] **options**: **[Options](#options)** - Various options to override default behaviour
 - [ ] **attributes**: **[String: Any]** - The PBXProject attributes. This is for advanced use. If no value is set for `LastUpgradeCheck`, it will be defaulted to ``{"LastUpgradeCheck": "XcodeVersion"}`` with `xcodeVersion` being set by [Options](#options)`.xcodeVersion`
+- [ ] **breakpoints**: [Breakpoints](#breakpoints) - Add shared breakpoints to the generated project
 - [ ] **configs**: **[Configs](#configs)** - Project build configurations. Defaults to `Debug` and `Release` configs
 - [ ] **configFiles**: **[Config Files](#config-files)** - `.xcconfig` files per config
 - [ ] **settings**: **[Settings](#settings)** - Project specific settings. Default base and config type settings will be applied first before any settings defined here
@@ -64,12 +85,13 @@ An include can be provided via a string (the path) or an object of the form:
 
 - [x] **path**: **String** - The path to the included file.
 - [ ] **relativePaths**: **Bool** - Dictates whether the included spec specifies paths relative to itself (the default) or the root spec file.
-
+- [ ] **enable**: **Bool** - Dictates whether the specified spec should be included or not. You can also specify it by environment variable.
 ```yaml
 include:
   - includedFile.yml
   - path: path/to/includedFile.yml
     relativePaths: false
+    enable: ${INCLUDE_ADDITIONAL_YAML}
 ```
 
 By default specs are merged additively. That is for every value:
@@ -98,7 +120,7 @@ Note that target names can also be changed by adding a `name` property to a targ
 - [ ] **minimumXcodeGenVersion**: **String** - The minimum version of XcodeGen required.
 - [ ] **carthageBuildPath**: **String** - The path to the carthage build directory. Defaults to `Carthage/Build`. This is used when specifying target carthage dependencies
 - [ ] **carthageExecutablePath**: **String** - The path to the carthage executable. Defaults to `carthage`. You can specify when you use custom built or locally installed Carthage using [Mint](https://github.com/yonaskolb/Mint), for example.
-- [ ] **createIntermediateGroups**: **Bool** - If this is specified and set to `true`, then intermediate groups will be created for every path component between the folder containing the source and next existing group it finds or the base path. For example, when enabled if a source path is specified as `Vendor/Foo/Hello.swift`, the group `Vendor` will created as a parent of the `Foo` group. This can be overriden in a specific [Target source](#target-source)
+- [ ] **createIntermediateGroups**: **Bool** - If this is specified and set to `true`, then intermediate groups will be created for every path component between the folder containing the source and next existing group it finds or the base path. For example, when enabled if a source path is specified as `Vendor/Foo/Hello.swift`, the group `Vendor` will created as a parent of the `Foo` group. This can be overridden in a specific [Target source](#target-source)
 - [ ] **bundleIdPrefix**: **String** - If this is specified then any target that doesn't have an `PRODUCT_BUNDLE_IDENTIFIER` (via all levels of build settings) will get an autogenerated one by combining `bundleIdPrefix` and the target name: `bundleIdPrefix.name`. The target name will be stripped of all characters that aren't alphanumerics, hyphens, or periods. Underscores will be replaced with hyphens.
 - [ ] **settingPresets**: **String** - This controls the settings that are automatically applied to the project and its targets. These are the same build settings that Xcode would add when creating a new project. Project settings are applied by config type. Target settings are applied by the product type and platform. By default this is set to `all`
 	- `all`: project and target settings
@@ -114,6 +136,7 @@ Note that target names can also be changed by adding a `name` property to a targ
 - [ ] **disabledValidations**: **[String]** - A list of validations that can be disabled if they're too strict for your use case. By default this is set to an empty array. Currently these are the available options:
   - `missingConfigs`: Disable errors for configurations in yaml files that don't exist in the project itself. This can be useful if you include the same yaml file in different projects
   - `missingConfigFiles`: Disable checking for the existence of configuration files. This can be useful for generating a project in a context where config files are not available.
+  - `missingTestPlans`: Disable checking if test plan paths exist. This can be useful if your test plans haven't been created yet.
 - [ ] **defaultConfig**: **String** - The default configuration for command line builds from Xcode. If the configuration provided here doesn't match one in your [configs](#configs) key, XcodeGen will fail. If you don't set this, the first configuration alphabetically will be chosen.
 - [ ] **groupSortPosition**: **String** - Where groups are sorted in relation to other files. Either:
   - `none` - sorted alphabetically with all the other files
@@ -122,7 +145,7 @@ Note that target names can also be changed by adding a `name` property to a targ
 - [ ] **groupOrdering**: **[[GroupOrdering]](#groupOrdering)** - An order of groups.
 - [ ] **transitivelyLinkDependencies**: **Bool** - If this is `true` then targets will link to the dependencies of their target dependencies. If a target should embed its dependencies, such as application and test bundles, it will embed these transitive dependencies as well. Some complex setups might want to set this to `false` and explicitly specify dependencies at every level. Targets can override this with [Target](#target).transitivelyLinkDependencies. Defaults to `false`.
 - [ ] **generateEmptyDirectories**: **Bool** - If this is `true` then empty directories will be added to project too else will be missed. Defaults to `false`.
-- [ ] **findCarthageFrameworks**: **Bool** - When this is set to `true`, all the invididual frameworks for Carthage framework dependencies will automatically be found. This property can be overriden individually for each carthage dependency - for more details see See **findFrameworks** in the [Dependency](#dependency) section. Defaults to `false`.
+- [ ] **findCarthageFrameworks**: **Bool** - When this is set to `true`, all the individual frameworks for Carthage framework dependencies will automatically be found. This property can be overridden individually for each carthage dependency - for more details see See **findFrameworks** in the [Dependency](#dependency) section. Defaults to `false`.
 - [ ] **localPackagesGroup**: **String** - The group name that local packages are put into. This defaults to `Packages`
 - [ ] **fileTypes**: **[String: [FileType](#filetype)]** - A list of default file options for specific file extensions across the project. Values in [Sources](#sources) will overwrite these settings.
 - [ ] **preGenCommand**: **String** - A bash command to run before the project has been generated. If the project isn't generated due to no changes when using the cache then this won't run. This is useful for running things like generating resources files before the project is regenerated.
@@ -164,9 +187,85 @@ Default settings for file extensions. See [Sources](#sources) for more documenta
 - [ ] **resourceTags**: **[String]** - On Demand Resource Tags that will be applied to any resources. This also adds to the project attribute's knownAssetTags.
 - [ ] **compilerFlags**: **[String]** - A list of compiler flags to add.
 
+### Breakpoints
+
+- [x] **type**: **String** - Breakpoint type
+    - `File`: file breakpoint
+    - `Exception`: exception breakpoint
+    - `SwiftError`: swift error breakpoint
+    - `OpenGLError`: OpenGL breakpoint
+    - `Symbolic`: symbolic breakpoint
+    - `IDEConstraintError`: IDE constraint breakpoint
+    - `IDETestFailure`: IDE test failure breakpoint
+    - `RuntimeIssue`: Runtime issue breakpoint
+- [ ] **enabled**: **Bool** - Indicates whether it should be active. Default to `true`
+- [ ] **ignoreCount**: **Int** - Indicates how many times it should be ignored before stopping, Default to `0`
+- [ ] **continueAfterRunningActions**: **Bool** - Indicates if should automatically continue after evaluating actions, Default to `false`
+- [ ] **path**: **String** - Breakpoint file path (only required by file breakpoints)
+- [ ] **line**: **Int** - Breakpoint line (only required by file breakpoints)
+- [ ] **symbol**: **String** - Breakpoint symbol (only used by symbolic breakpoints)
+- [ ] **module**: **String** - Breakpoint module (only used by symbolic breakpoints)
+- [ ] **scope**: **String** - Breakpoint scope (only used by exception breakpoints)
+    - `All`
+    - `Objective-C` (default)
+    - `C++`
+- [ ] **stopOnStyle**: **String** - Indicates if should stop on style (only used by exception breakpoints)
+    -`throw` (default)
+    -`catch`
+- [ ] **condition**: **String** - Breakpoint condition
+- [ ] **actions**: **[[Breakpoint Action](#breakpoint-action)]** - breakpoint actions
+
+```yaml
+breakpoints:
+  - type: ExceptionBreakpoint
+    enabled: true
+    ignoreCount: 0
+    continueAfterRunningActions: false
+```
+
+#### Breakpoint Action
+
+- [x] **type**: **String** - Breakpoint action type
+    - `DebuggerCommand`: execute debugger command
+    - `Log`: log message
+    - `ShellCommand`: execute shell command
+    - `GraphicsTrace`: capture GPU frame
+    - `AppleScript`: execute AppleScript
+    - `Sound`: play sound
+- [ ] **command**: **String** - Debugger command (only used by debugger command breakpoint action)
+- [ ] **message**: **String** - Log message (only used log message breakpoint action)
+- [ ] **conveyanceType**: **String** - Conveyance type (only used by log message breakpoint action)
+    - `console`: log message to console (default)
+    - `speak`: speak message
+- [ ] **path**: **String** - Shell command file path (only used by shell command breakpoint action)
+- [ ] **arguments**: **String** - Shell command arguments (only used by shell command breakpoint action)
+- [ ] **waitUntilDone**: **Bool** - Indicates whether it should wait until done (only used by shell command breakpoint action). Default to `false`
+- [ ] **script**: **String** - AppleScript (only used by AppleScript breakpoint action)
+- [ ] **sound**: **String** - Sound name (only used by sound breakpoint action)
+    - `Basso` (default)
+    - `Blow`
+    - `Bottle`
+    - `Frog`
+    - `Funk`
+    - `Glass`
+    - `Hero`
+    - `Morse`
+    - `Ping`
+    - `Pop`
+    - `Purr`
+    - `Sosumi`
+    - `Submarine`
+    - `Tink`
+
+```yaml
+actions:
+  - type: Sound
+    sound: Blow
+```
+
 ### Configs
 
-Each config maps to a build type of either `debug` or `release` which will then apply default build settings to the project. Any value other than `debug` or `release` (for example `none`), will mean no default build settings will be applied to the project.
+Each config maps to a build type of either `debug` or `release` which will then apply default `Build Settings` to the project. Any value other than `debug` or `release` (for example `none`), will mean no default `Build Settings` will be applied to the project.
 
 ```yaml
 configs:
@@ -178,50 +277,80 @@ If no configs are specified, default `Debug` and `Release` configs will be creat
 
 ### Setting Groups
 
-Setting groups are named groups of build settings that can be reused elsewhere. Each preset is a [Settings](#settings) schema, so can include other groups
+Setting groups are named groups of `Build Settings` that can be reused elsewhere. Each preset is a [Settings](#settings) schema, so can include other `groups`  or define settings by `configs`.
 
 ```yaml
 settingGroups:
-  preset1:
-    BUILD_SETTING: value
-  preset2:
+  preset_generic:
+    CUSTOM_SETTING: value_custom
+  preset_debug:
+    BUILD_SETTING: value_debug
+  preset_release:
     base:
-      BUILD_SETTING: value
+      BUILD_SETTING: value_release
+  preset_all:
     groups:
-      - preset
-  preset3:
-     configs:
-        debug:
-          groups:
-            - preset
+      - preset_generic
+    configs:
+      debug:
+        groups:
+          - preset_debug
+      release:
+        groups:
+          - preset_release
+
+targets:
+  Application:
+    settings:
+      groups: 
+        - preset_all
 ```
 
 ## Settings
 
-Settings can either be a simple map of build settings `[String:String]`, or can be more advanced with the following properties:
+Settings correspond to `Build Settings` tab in Xcode. To display Setting Names instead of Setting Titles, select `Editor -> Show Setting Names` in Xcode.
 
-- [ ] **groups**: **[String]** - List of setting groups to include and merge
+Settings can either be a simple map of `Build Settings` `[String:String]`, or can be more advanced with the following properties:
+
+- [ ] **groups**: **[String]** - List of [Setting Groups](#setting-groups) to include and merge
 - [ ] **configs**: **[String:[Settings](#settings)]** - Mapping of config name to a settings spec. These settings will only be applied for that config. Each key will be matched to any configs that contain the key and is case insensitive. So if you had `Staging Debug` and `Staging Release`, you could apply settings to both of them using `staging`. However if a config name is an exact match to a config it won't be applied to any others. eg `Release` will be applied to config `Release` but not `Staging Release`
 - [ ] **base**: **[String:String]** - Used to specify default settings that apply to any config
 
 ```yaml
 settings:
-  BUILD_SETTING_1: value 1
-  BUILD_SETTING_2: value 2
+  GENERATE_INFOPLIST_FILE: NO
+  CODE_SIGNING_ALLOWED: NO
+  WRAPPER_EXTENSION: bundle
+```
+
+Don't mix simple maps with `groups`, `base` and `configs`.
+If `groups`, `base`, `configs` are used then simple maps is silently ignored.
+
+In this example, `CURRENT_PROJECT_VERSION` will be set, but `MARKETING_VERSION` will be ignored:
+```yaml
+settings:
+  MARKETING_VERSION: 100.0.0
+  base:
+    CURRENT_PROJECT_VERSION: 100.0
 ```
 
 ```yaml
 settings:
   base:
-    BUILD_SETTING_1: value 1
+    PRODUCT_NAME: XcodeGenProduct
   configs:
-    my_config:
-      BUILD_SETTING_2: value 2
+    debug:
+      CODE_SIGN_IDENTITY: iPhone Developer
+      PRODUCT_BUNDLE_IDENTIFIER: com.tomtom.debug_app
+    release:
+      CODE_SIGN_IDENTITY: iPhone Distribution
+      PRODUCT_BUNDLE_IDENTIFIER: com.tomtom.app
+      PROVISIONING_PROFILE_SPECIFIER: "Xcodegen Release"
   groups:
     - my_settings
 ```
 
-Settings are merged in the following order: groups, base, configs.
+Settings are merged in the following order: `groups`, `base`, `configs` (simple maps are ignored).
 
 ## Target
 
@@ -251,8 +380,9 @@ Settings are merged in the following order: groups, base, configs.
 - [ ] **templateAttributes**: **[String: String]** - A list of attributes where each instance of `${attributeName}` within the templates listed in `templates` will be replaced with the value specified.
 - [ ] **transitivelyLinkDependencies**: **Bool** - If this is not specified the value from the project set in [Options](#options)`.transitivelyLinkDependencies` will be used.
 - [ ] **directlyEmbedCarthageDependencies**: **Bool** - If this is `true` Carthage framework dependencies will be embedded using an `Embed Frameworks` build phase instead of the `copy-frameworks` script. Defaults to `true` for all targets except iOS/tvOS/watchOS Applications.
-- [ ] **requiresObjCLinking**: **Bool** - If this is `true` any targets that link to this target will have `-ObjC` added to their `OTHER_LDFLAGS`. This is required if a static library has any catagories or extensions on Objective-C code. See [this guide](https://pewpewthespells.com/blog/objc_linker_flags.html#objc) for more details. Defaults to `true` if `type` is `library.static`. If you are 100% sure you don't have catagories or extensions on Objective-C code (pure Swift with no use of Foundation/UIKit) you can set this to `false`, otherwise it's best to leave it alone.
+- [ ] **requiresObjCLinking**: **Bool** - If this is `true` any targets that link to this target will have `-ObjC` added to their `OTHER_LDFLAGS`. This is required if a static library has any categories or extensions on Objective-C code. See [this guide](https://pewpewthespells.com/blog/objc_linker_flags.html#objc) for more details. Defaults to `true` if `type` is `library.static`. If you are 100% sure you don't have categories or extensions on Objective-C code (pure Swift with no use of Foundation/UIKit) you can set this to `false`, otherwise it's best to leave it alone.
 - [ ] **onlyCopyFilesOnInstall**: **Bool** – If this is `true`, the `Embed Frameworks` and `Embed App Extensions` (if available) build phases will have the "Copy only when installing" chekbox checked. Defaults to `false`.
+- [ ] **buildToolPlugins**: **[[Build Tool Plug-ins](#build-tool-plug-ins)]** - Commands for the build system that run automatically *during* the build.
 - [ ] **preBuildScripts**: **[[Build Script](#build-script)]** - Build scripts that run *before* any other build phases
 - [ ] **postCompileScripts**: **[[Build Script](#build-script)]** - Build scripts that run after the Compile Sources phase
 - [ ] **postBuildScripts**: **[[Build Script](#build-script)]** - Build scripts that run *after* any other build phases
@@ -263,6 +393,7 @@ Settings are merged in the following order: groups, base, configs.
 	- `DevelopmentTeam`: if all configurations have the same `DEVELOPMENT_TEAM` setting
 	- `ProvisioningStyle`: if all configurations have the same `CODE_SIGN_STYLE` setting
 	- `TestTargetID`: if all configurations have the same `TEST_TARGET_NAME` setting
+- [ ] **putResourcesBeforeSourcesBuildPhase**: **Bool** - If this is `true` the `Copy Resources` step will be placed before the `Compile Sources` build step.
 
 ### Product Type
 
@@ -273,6 +404,7 @@ This will provide default build settings for a certain product type. It can be a
 - `application.messages`
 - `application.watchapp`
 - `application.watchapp2`
+- `application.watchapp2-container`
 - `app-extension`
 - `app-extension.intents-service`
 - `app-extension.messages`
@@ -281,6 +413,7 @@ This will provide default build settings for a certain product type. It can be a
 - `bundle.ocunit-test`
 - `bundle.ui-testing`
 - `bundle.unit-test`
+- `extensionkit-extension`
 - `framework`
 - `instruments-package`
 - `library.dynamic`
@@ -288,7 +421,6 @@ This will provide default build settings for a certain product type. It can be a
 - `framework.static`
 - `tool`
 - `tv-app-extension`
-- `watchapp2-container`
 - `watchkit-extension`
 - `watchkit2-extension`
 - `xcode-extension`
@@ -305,6 +437,7 @@ This will provide default build settings for a certain platform. It can be any o
 - `macOS`
 - `tvOS`
 - `watchOS`
+- `visionOS` (`visionOS` doesn't support Carthage usage)
 
 **Multi Platform targets**
 
@@ -347,7 +480,7 @@ A source can be provided via a string (the path) or an object of the form:
 - [x] **path**: **String** - The path to the source file or directory.
 - [ ] **name**: **String** - Can be used to override the name of the source file or directory. By default the last component of the path is used for the name
 - [ ] **group**: **String** - Can be used to override the parent group of the source file or directory. By default a group is created at the root with the name of this source file or directory or intermediate groups are created if `createIntermediateGroups` is set to `true`. Multiple groups can be created by separating each one using a `/`. If multiple target sources share the same `group`, they will be put together in the same parent group.
-- [ ] **compilerFlags**: **[String]** or **String** - A list of compilerFlags to add to files under this specific path provided as a list or a space delimitted string. Defaults to empty.
+- [ ] **compilerFlags**: **[String]** or **String** - A list of compilerFlags to add to files under this specific path provided as a list or a space delimited string. Defaults to empty.
 - [ ] **excludes**: **[String]** - A list of [global patterns](https://en.wikipedia.org/wiki/Glob_(programming)) representing the files to exclude. These rules are relative to `path` and _not the directory where `project.yml` resides_. XcodeGen uses Bash 4's Glob behaviors where globstar (**) is enabled.
 - [ ] **includes**: **[String]** - A list of global patterns in the same format as `excludes` representing the files to include. These rules are relative to `path` and _not the directory where `project.yml` resides_. If **excludes** is present and file conflicts with **includes**, **excludes** will override the **includes** behavior.
 - [ ] **createIntermediateGroups**: **Bool** - This overrides the value in [Options](#options)
@@ -564,6 +697,36 @@ targets:
         com.apple.security.application-groups: group.com.app
 ```
 
+### Build Tool Plug-ins
+
+To add `Build Tool Plug-ins`, you need to add information about plugins to [Target](#target):
+
+- **buildToolPlugins**: List of plugins to connect to the target
+
+Each plugin includes information:
+
+- [x] **plugin**: **String** - plugin name 
+- [x] **package**: **String** - the name of the package that contains the plugin
+
+Сonnect the plugin to the desired target:
+
+```yaml
+targets:
+  App:
+    buildToolPlugins:
+      - plugin: MyPlugin
+        package: MyPackage
+```
+
+Don't forget to add a package containing the plugin we need:
+
+```yaml
+packages:
+  MyPackage:
+    url: https://github.com/MyPackage
+    from: 1.3.0
+```
+
 ### Build Script
 
 Run script build phases can be added at 3 different points in the build:
@@ -582,9 +745,9 @@ Each script can contain:
 - [ ] **inputFileLists**: **[String]** - list of input .xcfilelist
 - [ ] **outputFileLists**: **[String]** - list of output .xcfilelist
 - [ ] **shell**: **String** - shell used for the script. Defaults to `/bin/sh`
-- [ ] **showEnvVars**: **Bool** - whether the environment variables accessible to the script show be printed to the build log. Defaults to yes
-- [ ] **runOnlyWhenInstalling**: **Bool** - whether the script is only run when installing (`runOnlyForDeploymentPostprocessing`). Defaults to no
-- [ ] **basedOnDependencyAnalysis**: **Bool** - whether to skip the script if inputs, context, or outputs haven't changed. Defaults to yes
+- [ ] **showEnvVars**: **Bool** - whether the environment variables accessible to the script show be printed to the build log. Defaults to `true`
+- [ ] **runOnlyWhenInstalling**: **Bool** - whether the script is only run when installing (`runOnlyForDeploymentPostprocessing`). Defaults to `false`
+- [ ] **basedOnDependencyAnalysis**: **Bool** - whether to skip the script if inputs, context, or outputs haven't changed. Defaults to `true`
 - [ ] **discoveredDependencyFile**: **String** - discovered dependency .d file. Defaults to none
 
 Either a **path** or **script** must be defined, the rest are optional.
@@ -646,22 +809,26 @@ targets:
         runOncePerArchitecture: false
 ```
 
-###  Target Scheme
+### Target Scheme
 
 This is a convenience used to automatically generate schemes for a target based on different configs or included tests. If you want more control check out the top level [Scheme](#scheme).
 
 - [x] **configVariants**: **[String]** - This generates a scheme for each entry, using configs that contain the name with debug and release variants. This is useful for having different environment schemes.
 - [ ] **testTargets**: **[[Test Target](#test-target)]** - a list of test targets that should be included in the scheme. These will be added to the build targets and the test entries. Each entry can either be a simple string, or a [Test Target](#test-target)
 - [ ] **gatherCoverageData**: **Bool** - a boolean that indicates if this scheme should gather coverage data. This defaults to false
+- [ ] **coverageTargets**: **[[Testable Target Reference](#testable-target-reference) - a list of targets to gather code coverage. Each entry can either be a simple string, a string using [Project Reference](#project-reference) or [Testable Target Reference](#testable-target-reference)
 - [ ] **disableMainThreadChecker**: **Bool** - a boolean that indicates if this scheme should disable the Main Thread Checker. This defaults to false
 - [ ] **stopOnEveryMainThreadCheckerIssue**: **Bool** - a boolean that indicates if this scheme should stop at every Main Thread Checker issue. This defaults to false
+- [ ] **disableThreadPerformanceChecker**: **Bool** - a boolean that indicates if this scheme should disable the Thread Performance Checker. This defaults to false
 - [ ] **buildImplicitDependencies**: **Bool** - Flag to determine if Xcode should build implicit dependencies of this scheme. By default this is `true` if not set.
 - [ ] **language**: **String** - a String that indicates the language used for running and testing. This defaults to nil
 - [ ] **region**: **String** - a String that indicates the region used for running and testing. This defaults to nil
 - [ ] **commandLineArguments**: **[String:Bool]** - a dictionary from the argument name (`String`) to if it is enabled (`Bool`). These arguments will be added to the Test, Profile and Run scheme actions
 - [ ] **environmentVariables**: **[[Environment Variable](#environment-variable)]** or **[String:String]** - environment variables for Run, Test and Profile scheme actions. When passing a dictionary, every key-value entry maps to a corresponding variable that is enabled.
+- [ ] **testPlans**:  **[[Test Plan](#test-plan)]** - List of test plan locations that will be referenced in the scheme.
 - [ ] **preActions**: **[[Execution Action](#execution-action)]** - Scripts that are run *before* the build action
 - [ ] **postActions**: **[[Execution Action](#execution-action)]** - Scripts that are run *after* the build action
+- [ ] **management**: **[Scheme Management](#scheme-management)** - Management options for the scheme
 - [ ] **storeKitConfiguration**: **String** - specify storekit configuration to use during run. See [Options](#options).
 
 For example, the spec below would create 3 schemes called:
@@ -691,6 +858,9 @@ targets:
         - Staging
         - Production
       gatherCoverageData: true
+      coverageTargets:
+        - MyTarget1
+        - ExternalTarget/OtherTarget1
       commandLineArguments:
         "-MyEnabledArg": true
         "-MyDisabledArg": false
@@ -700,7 +870,7 @@ targets:
     sources: Tests
 ```
 
-###  Legacy Target
+### Legacy Target
 
 By providing a legacy target, you are opting in to the "Legacy Target" mode. This is the "External Build Tool" from the Xcode GUI. This is useful for scripts that you want to run as dependencies of other targets, but you want to make sure that it only runs once even if it is specified as a dependency from multiple other targets.
 
@@ -716,13 +886,14 @@ This is used to override settings or run build scripts in specific targets
 - [x] **targets**: **[String]** - The list of target names to include as target dependencies
 - [ ] **configFiles**: **[Config Files](#config-files)** - `.xcconfig` files per config
 - [ ] **settings**: **[Settings](#settings)** - Target specific build settings.
+- [ ] **buildToolPlugins**: **[[Build Tool Plug-ins](#build-tool-plug-ins)]** - Commands for the build system that run automatically *during* the build
 - [ ] **buildScripts**: **[[Build Script](#build-script)]** - Build scripts to run
 - [ ] **scheme**: **[Target Scheme](#target-scheme)** - Generated scheme
 - [ ] **attributes**: **[String: Any]** - This sets values in the project `TargetAttributes`. It is merged with `attributes` from the project and anything automatically added by XcodeGen, with any duplicate values being override by values specified here
 
 ## Target Template
 
-This is a template that can be referenced from a normal target using the `templates` property. The properties of this template are the same as a [Target](#target)].
+This is a template that can be referenced from a normal target using the `templates` property. The properties of this template are the same as a [Target](#target).
 Any instances of `${target_name}` within each template will be replaced by the final target name which references the template.
 Any attributes defined within a targets `templateAttributes` will be used to replace any attribute references in the template using the syntax `${attribute_name}`.
 
@@ -754,6 +925,7 @@ Schemes allows for more control than the convenience [Target Scheme](#target-sch
 - [ ] ***profile***: The profile action
 - [ ] ***analyze***: The analyze action
 - [ ] ***archive***: The archive action
+- [ ] ***management***: management metadata
 
 ### Build
 
@@ -796,8 +968,11 @@ The different actions share some properties:
 - [ ] **preActions**: **[[Execution Action](#execution-action)]** - Scripts that are run *before* the action
 - [ ] **postActions**: **[[Execution Action](#execution-action)]** - Scripts that are run *after* the action
 - [ ] **environmentVariables**: **[[Environment Variable](#environment-variable)]** or **[String:String]** - `run`, `test` and `profile` actions can define the environment variables. When passing a dictionary, every key-value entry maps to a corresponding variable that is enabled.
+- [ ] **enableGPUFrameCaptureMode**: **GPUFrameCaptureMode** - Property value set for `GPU Frame Capture`. Possible values are `autoEnabled`, `metal`, `openGL`, `disabled`. Default is `autoEnabled`.
+- [ ] **enableGPUValidationMode**: **GPUValidationMode** - Property value set for `Metal API Validation`. Possible values are `enabled`, `disabled`, `extended`. Default is `enabled`.
 - [ ] **disableMainThreadChecker**: **Bool** - `run` and `test` actions can define a boolean that indicates that this scheme should disable the Main Thread Checker. This defaults to false
 - [ ] **stopOnEveryMainThreadCheckerIssue**: **Bool** - a boolean that indicates if this scheme should stop at every Main Thread Checker issue. This defaults to false
+- [ ] **disableThreadPerformanceChecker**: **Bool** - `run` action can define a boolean that indicates that this scheme should disable the Thread Performance Checker. This defaults to false
 - [ ] **language**: **String** - `run` and `test` actions can define a language that is used for Application Language
 - [ ] **region**: **String** - `run` and `test` actions can define a language that is used for Application Region
 - [ ] **debugEnabled**: **Bool** - `run` and `test` actions can define a whether debugger should be used. This defaults to true.
@@ -824,19 +999,35 @@ A multiline script can be written using the various YAML multiline methods, for 
 ### Test Action
 
 - [ ] **gatherCoverageData**: **Bool** - a boolean that indicates if this scheme should gather coverage data. This defaults to false
-- [ ] **coverageTargets**: **[String]** - a list of targets to gather code coverage. Each entry can either be a simple string, or a string using [Project Reference](#project-reference)
+- [ ] **coverageTargets**: **[[Testable Target Reference](#testable-target-reference)]** - a list of targets to gather code coverage. Each entry can either be a simple string, a string using [Project Reference](#project-reference) or [Testable Target Reference](#testable-target-reference)
 - [ ] **targets**: **[[Test Target](#test-target)]** - a list of targets to test. Each entry can either be a simple string, or a [Test Target](#test-target)
 - [ ] **customLLDBInit**: **String** - the absolute path to the custom `.lldbinit` file
 - [ ] **captureScreenshotsAutomatically**: **Bool** - indicates whether screenshots should be captured automatically while UI Testing. This defaults to true.
 - [ ] **deleteScreenshotsWhenEachTestSucceeds**: **Bool** - whether successful UI tests should cause automatically-captured screenshots to be deleted. If `captureScreenshotsAutomatically` is false, this value is ignored. This defaults to true.
+- [ ] **testPlans**:  **[[Test Plan](#test-plan)]** - List of test plan locations that will be referenced in the scheme.
 
 #### Test Target
-- [x] **name**: **String** - The name of the target
+A target can be one of a 2 types:
+
+- **name**: **String** - The name of the target.
+- **target**: **[Testable Target Reference](#testable-target-reference)** - The information of the target. You can specify more detailed information than `name:`.
+
+As syntax suger, you can also specify **[Testable Target Reference](#testable-target-reference)** without `target`.
+
+#### Other Parameters
+
 - [ ] **parallelizable**: **Bool** - Whether to run tests in parallel. Defaults to false
 - [ ] **randomExecutionOrder**: **Bool** - Whether to run tests in a random order. Defaults to false
+- [ ] **location**: **String** - GPX file or predefined value for simulating location. See [Simulate Location](#simulate-location) for location examples.
 - [ ] **skipped**: **Bool** - Whether to skip all of the test target tests. Defaults to false
 - [ ] **skippedTests**: **[String]** - List of tests in the test target to skip. Defaults to empty
 - [ ] **selectedTests**: **[String]** - List of tests in the test target to whitelist and select. Defaults to empty. This will override `skippedTests` if provided
+
+#### Testable Target Reference
+A Testable Target Reference can be one of 3 types:
+- `package: {local-swift-package-name}/{target-name}`: Name of local swift package and its target.
+- `local: {target-name}`:  Name of local target.
+- `project: {project-reference-name}/{target-name}`:  Name of local swift package and its target.
 
 ### Archive Action
 
@@ -871,6 +1062,10 @@ targets:
 
 Note that the path the gpx file will be prefixed according to the `schemePathPrefix` option in order to support both `.xcodeproj` and `.xcworkspace` setups. See [Options](#options).
 
+### Scheme Management
+- [ ] **shared**: **Bool** - indicates whether the scheme is shared
+- [ ] **orderHint**: **Int** - used by Xcode to sort the schemes
+- [ ] **isShown**: **Bool** - indicates whether the sheme is shown in the scheme list
 
 ### Environment Variable
 
@@ -897,12 +1092,16 @@ schemes:
       coverageTargets:
         - MyTarget1
         - ExternalTarget/OtherTarget1
+        - package: LocalPackage/TestTarget
       targets: 
         - Tester1 
         - name: Tester2
           parallelizable: true
           randomExecutionOrder: true
           skippedTests: [Test/testExample()]
+        - package: APIClient/APIClientTests
+          parallelizable: true
+          randomExecutionOrder: true
       environmentVariables:
         - variable: TEST_ENV_VAR
           value: VALUE
@@ -915,6 +1114,21 @@ schemes:
       config: prod-release
       customArchiveName: MyTarget
       revealArchiveInOrganizer: false
+```
+
+### Test Plan
+For now test plans are not generated by XcodeGen and must be created in Xcode and checked in, and then referenced by path. If the test targets are added, removed or renamed, the test plans may need to be updated in Xcode.
+
+- [x] **path**: **String** - path that provides the `xctestplan` location.
+- [ ] **defaultPlan**: **Bool** - a bool that defines if given plan is the default one. Defaults to false. If no default is set on any test plan, the first plan is set as the default.
+
+```yaml
+schemes:
+  TestTarget:
+    test:
+      testPlans:
+        - path: app.xctestplan
+          defaultPlan: true
 ```
 
 ## Scheme Template
@@ -953,8 +1167,6 @@ The result will be a scheme that builds `MyModule` when you request a build, and
 ## Swift Package
 Swift packages are defined at a project level, and then linked to individual targets via a [Dependency](#dependency).
 
-> Note that Swift Packages don't work in projects with configurations other than `Debug` and `Release`. That limitation is tracked here bugs.swift.org/browse/SR-10927
-
 ### Remote Package
 
 - [x] **url**: **URL** - the url to the package
@@ -970,17 +1182,21 @@ Swift packages are defined at a project level, and then linked to individual tar
 ### Local Package
 
 - [x] **path**: **String** - the path to the package in local. The path must be directory with a `Package.swift`.
+- [ ] **group** : **String**- Optional path that specifies the location where the package will live in your xcode project.
 
 ```yml
 packages:
   Yams:
     url: https://github.com/jpsim/Yams
     from: 2.0.0
-  Yams:
+  Ink:
     github: JohnSundell/Ink
     from: 0.5.0
   RxClient:
     path: ../RxClient
+  AppFeature:
+    path: ../Packages
+    group: Domains/AppFeature
 ```
 
 ## Project Reference

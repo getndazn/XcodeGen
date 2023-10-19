@@ -53,10 +53,14 @@ extension Dictionary {
 
 extension Xcode {
 
-    public static func fileType(path: Path) -> String? {
+    public static func fileType(path: Path, productType: PBXProductType? = nil) -> String? {
         guard let fileExtension = path.extension else { return nil }
-        switch fileExtension {
+        switch (fileExtension, productType) {
         // cases that aren't handled (yet) in XcodeProj.
+        case ("appex", .extensionKitExtension):
+            return "wrapper.extensionkit-extension"
+        case ("swiftcrossimport", _):
+            return "wrapper.swiftcrossimport"
         default:
             // fallback to XcodeProj defaults
             return Xcode.filetype(extension: fileExtension)

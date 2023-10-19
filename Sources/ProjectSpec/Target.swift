@@ -50,6 +50,7 @@ public struct Target: ProjectTarget {
     public var directlyEmbedCarthageDependencies: Bool?
     public var requiresObjCLinking: Bool?
     public var preBuildScripts: [BuildScript]
+    public var buildToolPlugins: [BuildToolPlugin]
     public var postCompileScripts: [BuildScript]
     public var postBuildScripts: [BuildScript]
     public var buildRules: [BuildRule]
@@ -60,6 +61,7 @@ public struct Target: ProjectTarget {
     public var attributes: [String: Any]
     public var productName: String
     public var onlyCopyFilesOnInstall: Bool
+    public var putResourcesBeforeSourcesBuildPhase: Bool
 
     public var isLegacy: Bool {
         legacy != nil
@@ -93,13 +95,15 @@ public struct Target: ProjectTarget {
         directlyEmbedCarthageDependencies: Bool? = nil,
         requiresObjCLinking: Bool? = nil,
         preBuildScripts: [BuildScript] = [],
+        buildToolPlugins: [BuildToolPlugin] = [],
         postCompileScripts: [BuildScript] = [],
         postBuildScripts: [BuildScript] = [],
         buildRules: [BuildRule] = [],
         scheme: TargetScheme? = nil,
         legacy: LegacyTarget? = nil,
         attributes: [String: Any] = [:],
-        onlyCopyFilesOnInstall: Bool = false
+        onlyCopyFilesOnInstall: Bool = false,
+        putResourcesBeforeSourcesBuildPhase: Bool = false
     ) {
         self.name = name
         self.nameDividerChar = nameDividerChar
@@ -117,6 +121,7 @@ public struct Target: ProjectTarget {
         self.directlyEmbedCarthageDependencies = directlyEmbedCarthageDependencies
         self.requiresObjCLinking = requiresObjCLinking
         self.preBuildScripts = preBuildScripts
+        self.buildToolPlugins = buildToolPlugins
         self.postCompileScripts = postCompileScripts
         self.postBuildScripts = postBuildScripts
         self.buildRules = buildRules
@@ -124,6 +129,7 @@ public struct Target: ProjectTarget {
         self.legacy = legacy
         self.attributes = attributes
         self.onlyCopyFilesOnInstall = onlyCopyFilesOnInstall
+        self.putResourcesBeforeSourcesBuildPhase = putResourcesBeforeSourcesBuildPhase
     }
 }
 
@@ -150,6 +156,7 @@ extension Target: PathContainer {
                 .object("postCompileScripts", BuildScript.pathProperties),
                 .object("postBuildScripts", BuildScript.pathProperties),
                 .object("legacy", LegacyTarget.pathProperties),
+                .object("scheme", TargetScheme.pathProperties),
             ]),
         ]
     }
@@ -225,6 +232,7 @@ extension Target: Equatable {
             lhs.entitlements == rhs.entitlements &&
             lhs.dependencies == rhs.dependencies &&
             lhs.preBuildScripts == rhs.preBuildScripts &&
+            lhs.buildToolPlugins == rhs.buildToolPlugins &&
             lhs.postCompileScripts == rhs.postCompileScripts &&
             lhs.postBuildScripts == rhs.postBuildScripts &&
             lhs.buildRules == rhs.buildRules &&
@@ -316,7 +324,13 @@ extension Target: NamedJSONDictionaryConvertible {
                 return platforms.contains(platform)
             }
         }
-
+        
+        if jsonDictionary["buildToolPlugins"] == nil {
+            buildToolPlugins = []
+        } else {
+            self.buildToolPlugins = try jsonDictionary.json(atKeyPath: "buildToolPlugins", invalidItemBehaviour: .fail)
+        }
+        
         if jsonDictionary["info"] != nil {
             info = try jsonDictionary.json(atKeyPath: "info") as Plist
         }
@@ -336,6 +350,7 @@ extension Target: NamedJSONDictionaryConvertible {
         legacy = jsonDictionary.json(atKeyPath: "legacy")
         attributes = jsonDictionary.json(atKeyPath: "attributes") ?? [:]
         onlyCopyFilesOnInstall = jsonDictionary.json(atKeyPath: "onlyCopyFilesOnInstall") ?? false
+        putResourcesBeforeSourcesBuildPhase = jsonDictionary.json(atKeyPath: "putResourcesBeforeSourcesBuildPhase") ?? false
     }
 }
 
@@ -351,6 +366,7 @@ extension Target: JSONEncodable {
             "dependencies": dependencies.map { $0.toJSONValue() },
             "postCompileScripts": postCompileScripts.map { $0.toJSONValue() },
             "prebuildScripts": preBuildScripts.map { $0.toJSONValue() },
+            "buildToolPlugins": buildToolPlugins.map { $0.toJSONValue() },
             "postbuildScripts": postBuildScripts.map { $0.toJSONValue() },
             "buildRules": buildRules.map { $0.toJSONValue() },
             "deploymentTarget": deploymentTarget?.deploymentTarget,
@@ -369,6 +385,10 @@ extension Target: JSONEncodable {
 
         if onlyCopyFilesOnInstall {
             dict["onlyCopyFilesOnInstall"] = true
+        }
+
+        if putResourcesBeforeSourcesBuildPhase {
+            dict["putResourcesBeforeSourcesBuildPhase"] = true
         }
 
         return dict

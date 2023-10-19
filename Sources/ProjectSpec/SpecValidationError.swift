@@ -9,7 +9,7 @@ public struct SpecValidationError: Error, CustomStringConvertible {
         self.errors = errors
     }
 
-    public enum ValidationError: Error, CustomStringConvertible {
+    public enum ValidationError: Hashable, Error, CustomStringConvertible {
         case invalidXcodeGenVersion(minimumVersion: Version, version: Version)
         case invalidSDKDependency(target: String, dependency: String)
         case invalidTargetDependency(target: String, dependency: String)
@@ -20,6 +20,7 @@ public struct SpecValidationError: Error, CustomStringConvertible {
         case invalidSchemeTarget(scheme: String, target: String, action: String)
         case invalidSchemeConfig(scheme: String, config: String)
         case invalidSwiftPackage(name: String, target: String)
+        case invalidPackageDependencyReference(name: String)
         case invalidLocalPackage(String)
         case invalidConfigFile(configFile: String, config: String)
         case invalidBuildSettingConfig(String)
@@ -32,6 +33,10 @@ public struct SpecValidationError: Error, CustomStringConvertible {
         case invalidPerConfigSettings
         case invalidProjectReference(scheme: String, reference: String)
         case invalidProjectReferencePath(ProjectReference)
+        case invalidTestPlan(TestPlan)
+        case multipleDefaultTestPlans
+        case duplicateDependencies(target: String, dependencyReference: String)
+        case invalidPluginPackageReference(plugin: String, package: String)
 
         public var description: String {
             switch self {
@@ -42,7 +47,7 @@ public struct SpecValidationError: Error, CustomStringConvertible {
             case let .invalidTargetDependency(target, dependency):
                 return "Target \(target.quoted) has invalid dependency: \(dependency.quoted)"
             case let .invalidTargetConfigFile(target, configFile, config):
-                return "Target \(target.quoted) has invalid config file \(configFile.quoted) for config \(config.quoted)"
+                return "Target \(target.quoted) has invalid config file path \(configFile.quoted) for config \(config.quoted)"
             case let .invalidTargetSource(target, source):
                 return "Target \(target.quoted) has a missing source directory \(source.quoted)"
             case let .invalidTargetSchemeConfigVariant(target, configVariant, configType):
@@ -69,6 +74,8 @@ public struct SpecValidationError: Error, CustomStringConvertible {
                 return "Target \(target.quoted) has an invalid package dependency \(name.quoted)"
             case let .invalidLocalPackage(path):
                 return "Invalid local package \(path.quoted)"
+            case let .invalidPackageDependencyReference(name):
+                return "Package reference \(name) must be specified as package dependency, not target"
             case let .missingConfigForTargetScheme(target, configType):
                 return "Target \(target.quoted) is missing a config of type \(configType.rawValue) to generate its scheme"
             case let .missingDefaultConfig(name):
@@ -79,6 +86,14 @@ public struct SpecValidationError: Error, CustomStringConvertible {
                 return "Scheme \(scheme.quoted) has invalid project reference \(project.quoted)"
             case let .invalidProjectReferencePath(reference):
                 return "Project reference \(reference.name) has a project file path that doesn't exist \"\(reference.path)\""
+            case let .invalidTestPlan(testPlan):
+                return "Test plan path \"\(testPlan.path)\" doesn't exist"
+            case .multipleDefaultTestPlans:
+                return "Your test plans contain more than one default test plan"
+            case let .duplicateDependencies(target, dependencyReference):
+                 return "Target \(target.quoted) has the dependency \(dependencyReference.quoted) multiple times"
+            case let .invalidPluginPackageReference(plugin, package):
+                return "Plugin \(plugin) has invalide package reference \(package)"
             }
         }
     }

@@ -40,15 +40,18 @@ public class SchemeGenerator {
         return pbxproj
     }
 
-    public func generateSchemes() throws -> [XCScheme] {
-        var xcschemes: [XCScheme] = []
+    public func generateSchemes() throws -> (
+        shared: [XCScheme],
+        user: [XCScheme],
+        management: XCSchemeManagement?
+    ) {
+        var schemes: [(Scheme, ProjectTarget?)] = []
 
         for scheme in project.schemes {
-            let xcscheme = try generateScheme(scheme)
-            xcschemes.append(xcscheme)
+            schemes.append((scheme, nil))
         }
 
-        for target in project.targets {
+        for target in project.projectTargets {
             if let targetScheme = target.scheme {
                 if targetScheme.configVariants.isEmpty {
                     let schemeName = target.name
@@ -64,19 +67,25 @@ public class SchemeGenerator {
                         debugConfig: debugConfig.name,
                         releaseConfig: releaseConfig.name
                     )
-                    let xcscheme = try generateScheme(scheme, for: target)
-                    xcschemes.append(xcscheme)
+                    schemes.append((scheme, target))
                 } else {
                     for configVariant in targetScheme.configVariants {
 
-                        let schemeName = "\(target.name)\(target.nameDividerChar)\(configVariant)"
+                        let nameDividerChar: String
+                        if let target = target as? Target {
+                            nameDividerChar = target.nameDividerChar
+                        } else {
+                            nameDividerChar = Target.defaultNameDividerChar
+                        }
+
+                        let schemeName = "\(target.name)\(nameDividerChar)\(configVariant)"
                         
                         let debugConfig = project.configs
                             .first(including: configVariant, for: .debug)!
-                        
+
                         let releaseConfig = project.configs
                             .first(including: configVariant, for: .release)!
-                     
+
                         let scheme = Scheme(
                             name: schemeName,
                             target: target,
@@ -85,17 +94,47 @@ public class SchemeGenerator {
                             debugConfig: debugConfig.name,
                             releaseConfig: releaseConfig.name
                         )
-                        let xcscheme = try generateScheme(scheme, for: target)
-                        xcschemes.append(xcscheme)
+                        schemes.append((scheme, target))
                     }
                 }
             }
         }
 
-        return xcschemes
+        var sharedSchemes: [XCScheme] = []
+        var userSchemes: [XCScheme] = []
+        var schemeManagements: [XCSchemeManagement.UserStateScheme] = []
+
+        for (scheme, projectTarget) in schemes {
+            let xcscheme = try generateScheme(scheme, for: projectTarget)
+
+            if scheme.management?.shared == false {
+                userSchemes.append(xcscheme)
+            } else {
+                sharedSchemes.append(xcscheme)
+            }
+
+            if let management = scheme.management {
+                schemeManagements.append(
+                    XCSchemeManagement.UserStateScheme(
+                        name: scheme.name + ".xcscheme",
+                        shared: management.shared,
+                        orderHint: management.orderHint,
+                        isShown: management.isShown
+                    )
+                )
+            }
+        }
+
+        return (
+            shared: sharedSchemes,
+            user: userSchemes,
+            management: schemeManagements.isEmpty
+                ? nil
+                : XCSchemeManagement(schemeUserState: schemeManagements, suppressBuildableAutocreation: nil)
+        )
     }
 
-    public func generateScheme(_ scheme: Scheme, for target: Target? = nil) throws -> XCScheme {
+    public func generateScheme(_ scheme: Scheme, for target: ProjectTarget? = nil) throws -> XCScheme {
 
         func getBuildableReference(_ target: TargetReference) throws -> XCScheme.BuildableReference {
             let pbxProj: PBXProj
@@ -136,9 +175,27 @@ public class SchemeGenerator {
                 blueprintName: target.name
             )
         }
+        
+        func getBuildableTestableReference(_ target: TestableTargetReference) throws -> XCScheme.BuildableReference {
+            switch target.location {
+            case .package(let packageName):
+                guard let package = self.project.getPackage(packageName),
+                      case let .local(path, _) = package else {
+                    throw SchemeGenerationError.missingPackage(packageName)
+                }
+                return XCScheme.BuildableReference(
+                    referencedContainer: "container:\(path)",
+                    blueprintIdentifier: target.name,
+                    buildableName: target.name,
+                    blueprintName: target.name
+                )
+            default:
+                return try getBuildableReference(target.targetReference)
+            }
+        }
 
         func getBuildEntry(_ buildTarget: Scheme.BuildTarget) throws -> XCScheme.BuildAction.Entry {
-            let buildableReference = try getBuildableReference(buildTarget.target)
+            let buildableReference = try getBuildableTestableReference(buildTarget.target)
             return XCScheme.BuildAction.Entry(buildableReference: buildableReference, buildFor: buildTarget.buildTypes)
         }
 
@@ -161,7 +218,7 @@ public class SchemeGenerator {
             return XCScheme.ExecutionAction(scriptText: action.script, title: action.name, environmentBuildable: environmentBuildable)
         }
 
-        let schemeTarget: Target?
+        let schemeTarget: ProjectTarget?
 
         if let targetName = scheme.run?.executable {
             schemeTarget = project.getTarget(targetName)
@@ -187,12 +244,28 @@ public class SchemeGenerator {
             runPostActionsOnFailure: scheme.build.runPostActionsOnFailure
         )
 
-        let testables = zip(testTargets, testBuildTargetEntries).map { testTarget, testBuilEntries in
-            XCScheme.TestableReference(
+        let testables: [XCScheme.TestableReference] = zip(testTargets, testBuildTargetEntries).map { testTarget, testBuildEntries in
+            
+            var locationScenarioReference: XCScheme.LocationScenarioReference?
+            if var location = testTarget.location {
+                
+                if location.contains(".gpx") {
+                    var path = Path(components: [project.options.schemePathPrefix, location])
+                    path = path.simplifyingParentDirectoryReferences()
+                    location = path.string
+                }
+                
+                let referenceType = location.contains(".gpx") ? "0" : "1"
+                locationScenarioReference = XCScheme.LocationScenarioReference(identifier: location, referenceType: referenceType)
+                
+            }
+            
+            return XCScheme.TestableReference(
                 skipped: testTarget.skipped,
                 parallelizable: testTarget.parallelizable,
                 randomExecutionOrdering: testTarget.randomExecutionOrder,
-                buildableReference: testBuilEntries.buildableReference,
+                buildableReference: testBuildEntries.buildableReference,
+                locationScenarioReference: locationScenarioReference,
                 skippedTests: testTarget.skippedTests.map(XCScheme.TestItem.init),
                 selectedTests: testTarget.selectedTests.map(XCScheme.TestItem.init),
                 useTestSelectionWhitelist: !testTarget.selectedTests.isEmpty ? true : nil
@@ -200,7 +273,7 @@ public class SchemeGenerator {
         }
 
         let coverageBuildableTargets = try scheme.test?.coverageTargets.map {
-            try getBuildableReference($0)
+            try getBuildableTestableReference($0)
         } ?? []
 
         let testCommandLineArgs = scheme.test.map { XCScheme.CommandLineArguments($0.commandLineArguments) }
@@ -211,10 +284,16 @@ public class SchemeGenerator {
         let launchVariables = scheme.run.flatMap { $0.environmentVariables.isEmpty ? nil : $0.environmentVariables }
         let profileVariables = scheme.profile.flatMap { $0.environmentVariables.isEmpty ? nil : $0.environmentVariables }
 
+        let defaultTestPlanIndex = scheme.test?.testPlans.firstIndex { $0.defaultPlan } ?? 0
+        let testPlans = scheme.test?.testPlans.enumerated().map { index, testPlan in
+             XCScheme.TestPlanReference(reference: "container:\(testPlan.path)", default: defaultTestPlanIndex == index)
+        } ?? []
+
         let testAction = XCScheme.TestAction(
             buildConfiguration: scheme.test?.config ?? defaultDebugConfig.name,
             macroExpansion: buildableReference,
             testables: testables,
+            testPlans: testPlans.isEmpty ? nil : testPlans,
             preActions: scheme.test?.preActions.map(getExecutionAction) ?? [],
             postActions: scheme.test?.postActions.map(getExecutionAction) ?? [],
             selectedDebuggerIdentifier: (scheme.test?.debugEnabled ?? Scheme.Test.debugEnabledDefault) ? XCScheme.defaultDebugger : "",
@@ -268,7 +347,10 @@ public class SchemeGenerator {
             askForAppToLaunch: scheme.run?.askForAppToLaunch,
             allowLocationSimulation: allowLocationSimulation,
             locationScenarioReference: locationScenarioReference,
+            enableGPUFrameCaptureMode: scheme.run?.enableGPUFrameCaptureMode ?? XCScheme.LaunchAction.defaultGPUFrameCaptureMode,
+            enableGPUValidationMode: scheme.run?.enableGPUValidationMode ?? XCScheme.LaunchAction.defaultGPUValidationMode,
             disableMainThreadChecker: scheme.run?.disableMainThreadChecker ?? Scheme.Run.disableMainThreadCheckerDefault,
+            disablePerformanceAntipatternChecker: scheme.run?.disableThreadPerformanceChecker ?? Scheme.Run.disableThreadPerformanceCheckerDefault,
             stopOnEveryMainThreadCheckerIssue: scheme.run?.stopOnEveryMainThreadCheckerIssue ?? Scheme.Run.stopOnEveryMainThreadCheckerIssueDefault,
             commandlineArguments: launchCommandLineArgs,
             environmentVariables: launchVariables,
@@ -280,10 +362,11 @@ public class SchemeGenerator {
         )
 
         let profileAction = XCScheme.ProfileAction(
-            buildableProductRunnable: runnables.profile,
+            buildableProductRunnable: shouldExecuteOnLaunch ? runnables.profile : nil,
             buildConfiguration: scheme.profile?.config ?? defaultReleaseConfig.name,
             preActions: scheme.profile?.preActions.map(getExecutionAction) ?? [],
             postActions: scheme.profile?.postActions.map(getExecutionAction) ?? [],
+            macroExpansion: shouldExecuteOnLaunch ? nil : buildableReference,
             shouldUseLaunchSchemeArgsEnv: scheme.profile?.shouldUseLaunchSchemeArgsEnv ?? true,
             askForAppToLaunch: scheme.profile?.askForAppToLaunch,
             commandlineArguments: profileCommandLineArgs,
@@ -316,8 +399,8 @@ public class SchemeGenerator {
                 .flatMap { $0.type.isExtension ? true : nil }
         )
     }
-
-    private func launchAutomaticallySubstyle(for target: Target?) -> String? {
+    
+    private func launchAutomaticallySubstyle(for target: ProjectTarget?) -> String? {
         if target?.type.isExtension == true {
             return "2"
         } else {
@@ -325,7 +408,7 @@ public class SchemeGenerator {
         }
     }
 
-    private func makeProductRunnables(for target: Target?, buildableReference: XCScheme.BuildableReference) -> (launch: XCScheme.Runnable, profile: XCScheme.BuildableProductRunnable) {
+    private func makeProductRunnables(for target: ProjectTarget?, buildableReference: XCScheme.BuildableReference) -> (launch: XCScheme.Runnable, profile: XCScheme.BuildableProductRunnable) {
         let buildable = XCScheme.BuildableProductRunnable(buildableReference: buildableReference)
         if target?.type.isWatchApp == true {
             let remote = XCScheme.RemoteRunnable(
@@ -339,7 +422,7 @@ public class SchemeGenerator {
         }
     }
 
-    private func selectedDebuggerIdentifier(for target: Target?, run: Scheme.Run?) -> String {
+    private func selectedDebuggerIdentifier(for target: ProjectTarget?, run: Scheme.Run?) -> String {
         if target?.type.canUseDebugLauncher != false && run?.debugEnabled ?? Scheme.Run.debugEnabledDefault {
             return XCScheme.defaultDebugger
         } else {
@@ -347,7 +430,7 @@ public class SchemeGenerator {
         }
     }
 
-    private func selectedLauncherIdentifier(for target: Target?, run: Scheme.Run?) -> String {
+    private func selectedLauncherIdentifier(for target: ProjectTarget?, run: Scheme.Run?) -> String {
         if target?.type.canUseDebugLauncher != false && run?.debugEnabled ?? Scheme.Run.debugEnabledDefault {
             return XCScheme.defaultLauncher
         } else {
@@ -359,6 +442,7 @@ public class SchemeGenerator {
 enum SchemeGenerationError: Error, CustomStringConvertible {
 
     case missingTarget(TargetReference, projectPath: String)
+    case missingPackage(String)
     case missingProject(String)
     case missingBuildTargets(String)
 
@@ -370,12 +454,14 @@ enum SchemeGenerationError: Error, CustomStringConvertible {
             return "Unable to find project reference named \"\(project)\" in project.yml"
         case .missingBuildTargets(let name):
             return "Unable to find at least one build target in scheme \"\(name)\""
+        case .missingPackage(let package):
+            return "Unable to find swift package named \"\(package)\" in project.yml"
         }
     }
 }
 
 extension Scheme {
-    public init(name: String, target: Target, targetScheme: TargetScheme, project: Project, debugConfig: String, releaseConfig: String) {
+    public init(name: String, target: ProjectTarget, targetScheme: TargetScheme, project: Project, debugConfig: String, releaseConfig: String) {
         self.init(
             name: name,
             build: .init(
@@ -390,6 +476,7 @@ extension Scheme {
                 environmentVariables: targetScheme.environmentVariables,
                 disableMainThreadChecker: targetScheme.disableMainThreadChecker,
                 stopOnEveryMainThreadCheckerIssue: targetScheme.stopOnEveryMainThreadCheckerIssue,
+                disableThreadPerformanceChecker: targetScheme.disableThreadPerformanceChecker,
                 language: targetScheme.language,
                 region: targetScheme.region,
                 storeKitConfiguration: targetScheme.storeKitConfiguration
@@ -397,10 +484,12 @@ extension Scheme {
             test: .init(
                 config: debugConfig,
                 gatherCoverageData: targetScheme.gatherCoverageData,
+                coverageTargets: targetScheme.coverageTargets,
                 disableMainThreadChecker: targetScheme.disableMainThreadChecker,
                 commandLineArguments: targetScheme.commandLineArguments,
                 targets: targetScheme.testTargets,
                 environmentVariables: targetScheme.environmentVariables,
+                testPlans: targetScheme.testPlans,
                 language: targetScheme.language,
                 region: targetScheme.region
             ),
@@ -414,19 +503,20 @@ extension Scheme {
             ),
             archive: .init(
                 config: releaseConfig
-            )
+            ),
+            management: targetScheme.management
         )
     }
 
-    private static func buildTargets(for target: Target, project: Project) -> [BuildTarget] {
-        let buildTarget = Scheme.BuildTarget(target: TargetReference.local(target.name))
+    private static func buildTargets(for target: ProjectTarget, project: Project) -> [BuildTarget] {
+        let buildTarget = Scheme.BuildTarget(target: TestableTargetReference.local(target.name))
         switch target.type {
         case .watchApp, .watch2App:
             let hostTarget = project.targets
                 .first { projectTarget in
                     projectTarget.dependencies.contains { $0.reference == target.name }
                 }
-                .map { BuildTarget(target: TargetReference.local($0.name)) }
+                .map { BuildTarget(target: TestableTargetReference.local($0.name)) }
             return hostTarget.map { [buildTarget, $0] } ?? [buildTarget]
         default:
             return [buildTarget]
