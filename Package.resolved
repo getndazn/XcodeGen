@@ -10,12 +10,12 @@
       }
     },
     {
-      "identity" : "graphviz",
+      "identity" : "artifactbundlegen",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/SwiftDocOrg/GraphViz.git",
+      "location" : "https://github.com/freddi-kit/ArtifactBundleGen",
       "state" : {
-        "revision" : "70bebcf4597b9ce33e19816d6bbd4ba9b7bdf038",
-        "version" : "0.2.0"
+        "revision" : "707e4ccc4b1c7e48e881cd5ea91e493a95df24bf",
+        "version" : "0.0.6"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/onevcat/Rainbow.git",
       "state" : {
-        "revision" : "626c3d4b6b55354b4af3aa309f998fae9b31a3d9",
-        "version" : "3.2.0"
+        "revision" : "e0dada9cd44e3fa7ec3b867e49a8ddbf543e3df3",
+        "version" : "4.0.1"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tuist/XcodeProj.git",
       "state" : {
-        "revision" : "6e60fb55271c80f83a186c9b1b4982fd991cfc0a",
-        "version" : "8.13.0"
+        "revision" : "447c159b0c5fb047a024fd8d942d4a76cf47dde0",
+        "version" : "8.16.0"
       }
     },
     {
