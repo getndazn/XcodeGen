@@ -8,11 +8,10 @@ public struct AggregateTarget: ProjectTarget {
     public var targets: [String]
     public var settings: Settings
     public var buildScripts: [BuildScript]
-    public var buildToolPlugins: [BuildToolPlugin]
     public var configFiles: [String: String]
     public var scheme: TargetScheme?
     public var attributes: [String: Any]
-    public var nameDividerChar: String = Target.defaultNameDividerChar
+    public var nameDividerChar: String? = Target.defaultNameDividerChar
 
     public init(
         name: String,
@@ -20,7 +19,6 @@ public struct AggregateTarget: ProjectTarget {
         settings: Settings = .empty,
         configFiles: [String: String] = [:],
         buildScripts: [BuildScript] = [],
-        buildToolPlugins: [BuildToolPlugin] = [],
         scheme: TargetScheme? = nil,
         attributes: [String: Any] = [:]
     ) {
@@ -29,7 +27,6 @@ public struct AggregateTarget: ProjectTarget {
         self.settings = settings
         self.configFiles = configFiles
         self.buildScripts = buildScripts
-        self.buildToolPlugins = buildToolPlugins
         self.scheme = scheme
         self.attributes = attributes
     }
@@ -50,7 +47,6 @@ extension AggregateTarget: Equatable {
             lhs.settings == rhs.settings &&
             lhs.configFiles == rhs.configFiles &&
             lhs.buildScripts == rhs.buildScripts &&
-            lhs.buildToolPlugins == rhs.buildToolPlugins &&
             lhs.scheme == rhs.scheme &&
             NSDictionary(dictionary: lhs.attributes).isEqual(to: rhs.attributes)
     }
@@ -64,7 +60,6 @@ extension AggregateTarget: NamedJSONDictionaryConvertible {
         settings = jsonDictionary.json(atKeyPath: "settings") ?? .empty
         configFiles = jsonDictionary.json(atKeyPath: "configFiles") ?? [:]
         buildScripts = jsonDictionary.json(atKeyPath: "buildScripts") ?? []
-        buildToolPlugins = jsonDictionary.json(atKeyPath: "buildToolPlugins") ?? []
         scheme = jsonDictionary.json(atKeyPath: "scheme")
         attributes = jsonDictionary.json(atKeyPath: "attributes") ?? [:]
     }
@@ -78,7 +73,6 @@ extension AggregateTarget: JSONEncodable {
             "configFiles": configFiles,
             "attributes": attributes,
             "buildScripts": buildScripts.map { $0.toJSONValue() },
-            "buildToolPlugins": buildToolPlugins.map { $0.toJSONValue() },
             "scheme": scheme?.toJSONValue(),
         ] as [String: Any?]
     }
