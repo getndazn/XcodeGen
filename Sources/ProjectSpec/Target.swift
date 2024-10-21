@@ -34,13 +34,13 @@ extension LegacyTarget: PathContainer {
 }
 
 public struct Target: ProjectTarget {
-    
     public static var defaultNameDividerChar = "_"
-    
+
     public var name: String
     public var nameDividerChar: String?
     public var type: PBXProductType
     public var platform: Platform
+    public var supportedDestinations: [SupportedDestination]?
     public var settings: Settings
     public var sources: [TargetSource]
     public var dependencies: [Dependency]
@@ -80,9 +80,9 @@ public struct Target: ProjectTarget {
 
     public init(
         name: String,
-        nameDividerChar: String = Target.defaultNameDividerChar,
         type: PBXProductType,
         platform: Platform,
+        supportedDestinations: [SupportedDestination]? = nil,
         productName: String? = nil,
         deploymentTarget: Version? = nil,
         settings: Settings = .empty,
@@ -106,9 +106,9 @@ public struct Target: ProjectTarget {
         putResourcesBeforeSourcesBuildPhase: Bool = false
     ) {
         self.name = name
-        self.nameDividerChar = nameDividerChar
         self.type = type
         self.platform = platform
+        self.supportedDestinations = supportedDestinations
         self.deploymentTarget = deploymentTarget
         self.productName = productName ?? name
         self.settings = settings
@@ -172,11 +172,13 @@ extension Target {
         var crossPlatformTargets: [String: JSONDictionary] = [:]
 
         for (targetName, target) in targetsDictionary {
-
             if let platforms = target["platform"] as? [String] {
-
                 for platform in platforms {
                     var platformTarget = target
+
+                        /// This value is set to help us to check, in Target init, that there are no conflicts in the definition of the platforms. We want to ensure that the user didn't define, at the same time,
+                        /// the new Xcode 14 supported destinations and the XcodeGen generation of Multiple Platform Targets (when you define the platform field as an array).
+                    platformTarget["isMultiPlatformTarget"] = true
 
                     platformTarget = platformTarget.expand(variables: ["platform": platform])
 
@@ -208,8 +210,8 @@ extension Target {
                 crossPlatformTargets[targetName] = target
             }
         }
-        var merged = jsonDictionary
 
+        var merged = jsonDictionary
         merged["targets"] = crossPlatformTargets
         return merged
     }
@@ -219,26 +221,26 @@ extension Target: Equatable {
 
     public static func == (lhs: Target, rhs: Target) -> Bool {
         lhs.name == rhs.name &&
-            lhs.type == rhs.type &&
-            lhs.platform == rhs.platform &&
-            lhs.deploymentTarget == rhs.deploymentTarget &&
-            lhs.transitivelyLinkDependencies == rhs.transitivelyLinkDependencies &&
-            lhs.requiresObjCLinking == rhs.requiresObjCLinking &&
-            lhs.directlyEmbedCarthageDependencies == rhs.directlyEmbedCarthageDependencies &&
-            lhs.settings == rhs.settings &&
-            lhs.configFiles == rhs.configFiles &&
-            lhs.sources == rhs.sources &&
-            lhs.info == rhs.info &&
-            lhs.entitlements == rhs.entitlements &&
-            lhs.dependencies == rhs.dependencies &&
-            lhs.preBuildScripts == rhs.preBuildScripts &&
-            lhs.buildToolPlugins == rhs.buildToolPlugins &&
-            lhs.postCompileScripts == rhs.postCompileScripts &&
-            lhs.postBuildScripts == rhs.postBuildScripts &&
-            lhs.buildRules == rhs.buildRules &&
-            lhs.scheme == rhs.scheme &&
-            lhs.legacy == rhs.legacy &&
-            NSDictionary(dictionary: lhs.attributes).isEqual(to: rhs.attributes)
+        lhs.type == rhs.type &&
+        lhs.platform == rhs.platform &&
+        lhs.deploymentTarget == rhs.deploymentTarget &&
+        lhs.transitivelyLinkDependencies == rhs.transitivelyLinkDependencies &&
+        lhs.requiresObjCLinking == rhs.requiresObjCLinking &&
+        lhs.directlyEmbedCarthageDependencies == rhs.directlyEmbedCarthageDependencies &&
+        lhs.settings == rhs.settings &&
+        lhs.configFiles == rhs.configFiles &&
+        lhs.sources == rhs.sources &&
+        lhs.info == rhs.info &&
+        lhs.entitlements == rhs.entitlements &&
+        lhs.dependencies == rhs.dependencies &&
+        lhs.preBuildScripts == rhs.preBuildScripts &&
+        lhs.buildToolPlugins == rhs.buildToolPlugins &&
+        lhs.postCompileScripts == rhs.postCompileScripts &&
+        lhs.postBuildScripts == rhs.postBuildScripts &&
+        lhs.buildRules == rhs.buildRules &&
+        lhs.scheme == rhs.scheme &&
+        lhs.legacy == rhs.legacy &&
+        NSDictionary(dictionary: lhs.attributes).isEqual(to: rhs.attributes)
     }
 }
 
@@ -273,16 +275,36 @@ extension Target: NamedJSONDictionaryConvertible {
     public init(name: String, jsonDictionary: JSONDictionary) throws {
         let resolvedName: String = jsonDictionary.json(atKeyPath: "name") ?? name
         self.name = resolvedName
-        self.nameDividerChar = jsonDictionary.json(atKeyPath: "nameDividerChar")
-            ?? Target.defaultNameDividerChar
         productName = jsonDictionary.json(atKeyPath: "productName") ?? resolvedName
-        let typeString: String = try jsonDictionary.json(atKeyPath: "type")
+
+        let typeString: String = jsonDictionary.json(atKeyPath: "type") ?? ""
         if let type = PBXProductType(string: typeString) {
             self.type = type
         } else {
             throw SpecParsingError.unknownTargetType(typeString)
         }
-        let platformString: String = try jsonDictionary.json(atKeyPath: "platform")
+
+        if let supportedDestinations: [SupportedDestination] = jsonDictionary.json(atKeyPath: "supportedDestinations") {
+            self.supportedDestinations = supportedDestinations
+        }
+
+        let isResolved = jsonDictionary.json(atKeyPath: "isMultiPlatformTarget") ?? false
+        if isResolved, supportedDestinations != nil {
+            throw SpecParsingError.invalidTargetPlatformAsArray
+        }
+
+        var platformString: String = jsonDictionary.json(atKeyPath: "platform") ?? ""
+            // platform defaults to 'auto' if it is empty and we are using supported destinations
+        if supportedDestinations != nil, platformString.isEmpty {
+            platformString = Platform.auto.rawValue
+        }
+            // we add 'iOS' in supported destinations if it contains only 'macCatalyst'
+        if supportedDestinations?.contains(.macCatalyst) == true,
+           supportedDestinations?.contains(.iOS) == false {
+
+            supportedDestinations?.append(.iOS)
+        }
+
         if let platform = Platform(rawValue: platformString) {
             self.platform = platform
         } else {
@@ -319,18 +341,18 @@ extension Target: NamedJSONDictionaryConvertible {
         } else {
             let dependencies: [Dependency] = try jsonDictionary.json(atKeyPath: "dependencies", invalidItemBehaviour: .fail)
             self.dependencies = dependencies.filter { [platform] dependency -> Bool in
-                // If unspecified, all platforms are supported
+                    // If unspecified, all platforms are supported
                 guard let platforms = dependency.platforms else { return true }
                 return platforms.contains(platform)
             }
         }
-        
+
         if jsonDictionary["buildToolPlugins"] == nil {
             buildToolPlugins = []
         } else {
             self.buildToolPlugins = try jsonDictionary.json(atKeyPath: "buildToolPlugins", invalidItemBehaviour: .fail)
         }
-        
+
         if jsonDictionary["info"] != nil {
             info = try jsonDictionary.json(atKeyPath: "info") as Plist
         }
@@ -359,6 +381,7 @@ extension Target: JSONEncodable {
         var dict: [String: Any?] = [
             "type": type.name,
             "platform": platform.rawValue,
+            "supportedDestinations": supportedDestinations?.map { $0.rawValue },
             "settings": settings.toJSONValue(),
             "configFiles": configFiles,
             "attributes": attributes,
