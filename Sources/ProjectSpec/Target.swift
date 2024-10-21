@@ -38,7 +38,7 @@ public struct Target: ProjectTarget {
     public static var defaultNameDividerChar = "_"
     
     public var name: String
-    public var nameDividerChar: String
+    public var nameDividerChar: String?
     public var type: PBXProductType
     public var platform: Platform
     public var supportedDestinations: [SupportedDestination]?

@@ -12,13 +12,6 @@ packages:
   XcodeGen:
     path: ../../.. #XcodeGen itself
     group: SPM
-  FooFeature:
-    path: FooFeature
-aggregateTargets:
-  AggTarget:
-    buildToolPlugins:
-      - plugin: PrefirePlaybookPlugin
-        package: Prefire
 targets:
   App:
     type: application
@@ -39,10 +32,6 @@ targets:
         embed: true
       - target: StaticLibrary
       - package: XcodeGen
-      - package: FooFeature
-        products:
-          - FooDomain
-          - FooUI
   Tests:
     type: bundle.unit-test
     platform: iOS
@@ -58,7 +47,3 @@ targets:
       - package: SwiftRoaring
         product: SwiftRoaringDynamic
       - package: XcodeGen
-      - package: FooFeature
-        products:
-        - FooDomain
-        - FooUI

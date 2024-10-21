@@ -58,9 +58,9 @@ class SourceGenerator {
         if let group {
           parentGroup = group.string
         }
-
+        
         let absolutePath = project.basePath + path.normalize()
-
+        
         // Get the local package's relative path from the project root
         let fileReferencePath = try? absolutePath.relativePath(from: projectDirectory ?? project.basePath).string
 
@@ -72,7 +72,6 @@ class SourceGenerator {
                 path: fileReferencePath
             )
         )
-
         if parentGroup == "" {
             rootGroups.insert(fileReference)
         } else {
@@ -87,16 +86,8 @@ class SourceGenerator {
     ///   - targetType: The type of target that the source files should belong to.
     ///   - sources: The array of sources defined as part of the targets spec.
     ///   - buildPhases: A dictionary containing any build phases that should be applied to source files at specific paths in the event that the associated `TargetSource` didn't already define a `buildPhase`. Values from this dictionary are used in cases where the project generator knows more about a file than the spec/filesystem does (i.e if the file should be treated as the targets Info.plist and so on).
-    func getAllSourceFiles(targetType: PBXProductType, sources: [TargetSource], platform: Platform, buildPhases: [Path : BuildPhaseSpec]) throws -> [SourceFile] {
-        try sources
-            .flatMap {
-                try getSourceFiles(
-                    targetType: targetType,
-                    targetSource: $0,
-                    platform: platform,
-                    buildPhases: buildPhases
-                )
-            }
+    func getAllSourceFiles(targetType: PBXProductType, sources: [TargetSource], buildPhases: [Path : BuildPhaseSpec], platform: Platform) throws -> [SourceFile] {
+        try sources.flatMap { try getSourceFiles(targetType: targetType, targetSource: $0, buildPhases: buildPhases, platform: platform) }
     }
 
     // get groups without build files. Use for Project.fileGroups
@@ -111,7 +102,7 @@ class SourceGenerator {
             return nil
         }
     }
-    
+
     private func makeDestinationFilters(for path: Path, with filters: [SupportedDestination]?, or inferDestinationFiltersByPath: Bool?) -> [String]? {
         if let filters = filters, !filters.isEmpty {
             return filters.map { $0.string }
@@ -119,7 +110,7 @@ class SourceGenerator {
             for supportedDestination in SupportedDestination.allCases {
                 let regex1 = try? NSRegularExpression(pattern: "\\/\(supportedDestination)\\/", options: .caseInsensitive)
                 let regex2 = try? NSRegularExpression(pattern: "\\_\(supportedDestination)\\.swift$", options: .caseInsensitive)
-                
+
                 if regex1?.isMatch(to: path.string) == true || regex2?.isMatch(to: path.string) == true {
                     return [supportedDestination.string]
                 }
@@ -127,7 +118,7 @@ class SourceGenerator {
         }
         return nil
     }
-    
+
     func generateSourceFile(targetType: PBXProductType, targetSource: TargetSource, path: Path, fileReference: PBXFileElement? = nil, buildPhases: [Path: BuildPhaseSpec]) -> SourceFile {
         let fileReference = fileReference ?? fileReferencesByPath[path.string.lowercased()]!
         var settings: [String: Any] = [:]
@@ -194,7 +185,7 @@ class SourceGenerator {
         }
         
         let platforms = makeDestinationFilters(for: path, with: targetSource.destinationFilters, or: targetSource.inferDestinationFiltersByPath)
-        
+
         let buildFile = PBXBuildFile(file: fileReference, settings: settings.isEmpty ? nil : settings, platformFilters: platforms)
         return SourceFile(
             path: path,
@@ -422,7 +413,7 @@ class SourceGenerator {
             && !excludePaths.contains(path)
             && !isExcludedPattern(path)
             // If includes is empty, it's included. If it's not empty, the path either needs to match exactly, or it needs to be a direct parent of an included path.
-            && (includePaths.flatMap { _isIncludedPathSorted(path, sortedPaths: $0) } ?? true)
+        && ((includePaths?.value.isEmpty ?? true) || includePaths.flatMap { _isIncludedPathSorted(path, sortedPaths: $0) } ?? true)
     }
     
     private func _isIncludedPathSorted(_ path: Path, sortedPaths: SortedArray<Path>) -> Bool {
@@ -630,7 +621,7 @@ class SourceGenerator {
     }
 
     /// creates source files
-    private func getSourceFiles(targetType: PBXProductType, targetSource: TargetSource, platform: Platform? = nil, buildPhases: [Path: BuildPhaseSpec]) throws -> [SourceFile] {
+    private func getSourceFiles(targetType: PBXProductType, targetSource: TargetSource, buildPhases: [Path: BuildPhaseSpec], platform: Platform? = nil) throws -> [SourceFile] {
 
         // generate excluded paths
         let path = project.basePath + targetSource.path
