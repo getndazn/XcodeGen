@@ -2,9 +2,98 @@
 
 ## Next Version
 
+## 2.42.0
+
+### Added
+
+- Better support for local Swift packages in Xcode 15 #1465 @kinnarr
+- Added `macroExpansion` to test actions in schemes #1468 @erneestoc
+
+### Changed
+
+- Better default macroExpansion target in schemes #1471 @erneestoc
+
+### Removed
+
+- Removed `xcodegen dump --type graphviz` as graphviz no longer builds in Swift 6 and is no longer maintained. If anyone uses this feature and wishes to keep it, please submit a PR providing a suitable alternative. #1485 @giginet
+
+## 2.41.0
+
+### Added
+
+- Added `xcodegen cache` command that writes the cache. Useful for `post-commit` git hook integration #1476 @yonaskolb
+
+### Changed
+
+- Include folders in file sorting #1466 @jflan-dd
+
+### Fixed
+
+- Fixed `supportedDestinations` validation when it contains watchOS for multiplatform apps. #1470 @tatsuky
+
+## 2.40.1
+
+### Fixed
+
+- Reverted `.xcprivacy` handling. They will now again be treated as resources by default @yonaskolb
+
+## 2.40.0
+
+### Added
+
+- Added support for local Swift packages at the project root by specifying a "" group #1413 @hiltonc
+- Added a custom `shell` to a scheme's pre and post actions #1430 @balazs-vimn
+
+### Changed
+
+- `.xcprivacy` files are now not added to any build phases by default #1464 @yonaskolb
+
+## 2.39.1
+
+### Added
+
+- Proper defaults for `.cp` and `.cxx` files #1447 @eschwieb
+
+### Fixed
+
+- Fixed bundle access crash #1448 @freddi-kit
+- Pinned XcodeProj version to fix breaking changes when XcodeGen is used as a dependency #1449 @yonaskolb
+
+## 2.39.0
+
+### Added
+
+- Support Artifact Bundle #1388 @freddi-kit
+- Added support for `.xcstrings` String Catalogs #1421 @nicolasbosi95
+- Added default `LD_RUNPATH_SEARCH_PATHS` for visionOS #1444 @Dahlgren
+- Added `watchOS` as a supported cross platform destination #1438 @tatsuky
+
+### Fixed
+
+- Fixed custom local package groups not being created #1416 @JaapManenschijn
+- Fixed spec validation error type #1439 @Lutzifer
+- Create parent group for local package groups if it does not exist already #1417 @JaapManenschijn
+
+### Internal
+
+- Updated Rainbow version #1424 @nysander
+
+## 2.38.0
+
+### Added
+
+- [Multi-destination targets](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md#supported-destinations) #1336 @amatig
+  - Added `supportedDestinations` to target
+  - Added optional new `platform` value of `auto` when using `supportedDestinations`
+  - Added `destinationFilters` for sources and dependencies
+  - Added `inferDestinationFiltersByPath`, a convenience filter for sources
+- `.mlpackage` files now default to being a source type #1398 @aaron-foreflight
+- Added support for `Build Tool Plug-ins` in `AggregateTarget` #1390 @BarredEwe
+
 ### Fixed
 
 - Fixed source file `includes` not working when no paths were found #1337 @shnhrrsn
+- Supports specifying multiple package products #1395 @simonbs
 
 ## 2.37.0
 
@@ -250,7 +339,7 @@ Some support for Xcode Test Plans has been added. For now test plans are not gen
 #### Added
 
 - Allow specifying a `github` name like `JohnSundell/Ink` instead of a full `url` for Swift Packages #1029 @yonaskolb
-- Added explicity `LastUpgradeCheck` and `LastUpgradeVersion` override support so it's possible to override these properties without using the `project.xcodeVersion`. [1013](https://github.com/yonaskolb/XcodeGen/pull/1013) @Andre113
+- Added explicit `LastUpgradeCheck` and `LastUpgradeVersion` override support so it's possible to override these properties without using the `project.xcodeVersion`. [1013](https://github.com/yonaskolb/XcodeGen/pull/1013) @Andre113
 - Added `macroExpansion` for `run` in `schemes` #1036 @freddi-kit
 - Added `askForAppToLaunch` for `profile` in `schemes` #1035 @freddi-kit
 - Added support for selectedTests in schemes `Test` configuration. #913 @ooodin
@@ -294,8 +383,6 @@ Some support for Xcode Test Plans has been added. For now test plans are not gen
 #### Internal
 
 - Updated to Yams 4.0.0 #984 @swiftty
-
-[Commits](https://github.com/yonaskolb/XcodeGen/compare/2.18.0...2.19.0)
 
 ## 2.18.0
 
@@ -357,7 +444,7 @@ Some support for Xcode Test Plans has been added. For now test plans are not gen
 
 #### Fixed
 
-- Fixed issue when linking and embeding static frameworks: they should be linked and NOT embed. #820 @acecilia
+- Fixed issue when linking and embedding static frameworks: they should be linked and NOT embed. #820 @acecilia
 - Fixed issue when generating projects for paths with a dot in the folder for swift sources. #826 @asifmohd
 - Prefix static library target filenames with 'lib' to match Xcode. #831 @ileitch
 - Fixed duplicate addition of carthage static frameworks. #829 @funzin
@@ -624,7 +711,7 @@ Some support for Xcode Test Plans has been added. For now test plans are not gen
 
 #### Added
 
-- Added ability to automatically find all the frameworks for Carthage dependencies via the global `options.findCarthageFrameworks` or dependency specfic `dependency.findFrameworks`. See the [Carthage](Docs/Usage.md#carthage) usage docs for more info #506 @rpassis @yonaskolb
+- Added ability to automatically find all the frameworks for Carthage dependencies via the global `options.findCarthageFrameworks` or dependency specific `dependency.findFrameworks`. See the [Carthage](Docs/Usage.md#carthage) usage docs for more info #506 @rpassis @yonaskolb
 - Added support for nested target templates #534 @tomquist
 - Added ability to define `templateAttributes` within a target to be able to parameterize templates. #533 @tomquist
 - Added ability to set `link` to false in framework dependencies #532 @dimatosaurus
@@ -683,7 +770,7 @@ Some support for Xcode Test Plans has been added. For now test plans are not gen
 #### Fixed
 
 - Fixed XPC Service package type in generated `Info.plist` #435 @alvarhansen
-- Fixed phase ordering for modulemap and static libary header Copy File phases. [402](https://github.com/yonaskolb/XcodeGen/pull/402) @brentleyjones
+- Fixed phase ordering for modulemap and static library header Copy File phases. [402](https://github.com/yonaskolb/XcodeGen/pull/402) @brentleyjones
 - Fixed intermittent errors when running multiple `xcodegen`s concurrently #450 @bryansum
 - Fixed `--project` argument not working #437 @yonaskolb
 - Fixed unit tests not hooking up to host applications properly by default. They now generate a `TEST_HOST` and a `TestTargetID` #452 @yonaskolb

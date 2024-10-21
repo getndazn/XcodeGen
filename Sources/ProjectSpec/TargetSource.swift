@@ -24,6 +24,8 @@ public struct TargetSource: Equatable {
     public var createIntermediateGroups: Bool?
     public var attributes: [String]
     public var resourceTags: [String]
+    public var inferDestinationFiltersByPath: Bool?
+    public var destinationFilters: [SupportedDestination]?
 
     public enum HeaderVisibility: String {
         case `public`
@@ -53,7 +55,9 @@ public struct TargetSource: Equatable {
         headerVisibility: HeaderVisibility? = nil,
         createIntermediateGroups: Bool? = nil,
         attributes: [String] = [],
-        resourceTags: [String] = []
+        resourceTags: [String] = [],
+        inferDestinationFiltersByPath: Bool? = nil,
+        destinationFilters: [SupportedDestination]? = nil
     ) {
         self.path = (path as NSString).standardizingPath
         self.name = name
@@ -69,6 +73,8 @@ public struct TargetSource: Equatable {
         self.createIntermediateGroups = createIntermediateGroups
         self.attributes = attributes
         self.resourceTags = resourceTags
+        self.inferDestinationFiltersByPath = inferDestinationFiltersByPath
+        self.destinationFilters = destinationFilters
     }
 }
 
@@ -119,6 +125,12 @@ extension TargetSource: JSONObjectConvertible {
         createIntermediateGroups = jsonDictionary.json(atKeyPath: "createIntermediateGroups")
         attributes = jsonDictionary.json(atKeyPath: "attributes") ?? []
         resourceTags = jsonDictionary.json(atKeyPath: "resourceTags") ?? []
+        
+        inferDestinationFiltersByPath = jsonDictionary.json(atKeyPath: "inferDestinationFiltersByPath")
+        
+        if let destinationFilters: [SupportedDestination] = jsonDictionary.json(atKeyPath: "destinationFilters") {
+            self.destinationFilters = destinationFilters
+        }
     }
 }
 
@@ -136,6 +148,8 @@ extension TargetSource: JSONEncodable {
             "createIntermediateGroups": createIntermediateGroups,
             "resourceTags": resourceTags,
             "path": path,
+            "inferDestinationFiltersByPath": inferDestinationFiltersByPath,
+            "destinationFilters": destinationFilters?.map { $0.rawValue },
         ]
 
         if optional != TargetSource.optionalDefault {

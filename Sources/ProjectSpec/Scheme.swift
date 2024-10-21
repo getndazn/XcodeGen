@@ -88,10 +88,12 @@ public struct Scheme: Equatable {
         public var script: String
         public var name: String
         public var settingsTarget: String?
-        public init(name: String, script: String, settingsTarget: String? = nil) {
+        public var shell: String?
+        public init(name: String, script: String, shell: String? = nil, settingsTarget: String? = nil) {
             self.script = script
             self.name = name
             self.settingsTarget = settingsTarget
+            self.shell = shell
         }
     }
 
@@ -218,6 +220,7 @@ public struct Scheme: Equatable {
         public var captureScreenshotsAutomatically: Bool
         public var deleteScreenshotsWhenEachTestSucceeds: Bool
         public var testPlans: [TestPlan]
+        public var macroExpansion: String?
 
         public struct TestTarget: Equatable, ExpressibleByStringLiteral {
             
@@ -284,7 +287,8 @@ public struct Scheme: Equatable {
             debugEnabled: Bool = debugEnabledDefault,
             customLLDBInit: String? = nil,
             captureScreenshotsAutomatically: Bool = captureScreenshotsAutomaticallyDefault,
-            deleteScreenshotsWhenEachTestSucceeds: Bool = deleteScreenshotsWhenEachTestSucceedsDefault
+            deleteScreenshotsWhenEachTestSucceeds: Bool = deleteScreenshotsWhenEachTestSucceedsDefault,
+            macroExpansion: String? = nil
         ) {
             self.config = config
             self.gatherCoverageData = gatherCoverageData
@@ -302,6 +306,7 @@ public struct Scheme: Equatable {
             self.customLLDBInit = customLLDBInit
             self.captureScreenshotsAutomatically = captureScreenshotsAutomatically
             self.deleteScreenshotsWhenEachTestSucceeds = deleteScreenshotsWhenEachTestSucceeds
+            self.macroExpansion = macroExpansion
         }
 
         public var shouldUseLaunchSchemeArgsEnv: Bool {
@@ -400,6 +405,7 @@ extension Scheme.ExecutionAction: JSONObjectConvertible {
         script = try jsonDictionary.json(atKeyPath: "script")
         name = jsonDictionary.json(atKeyPath: "name") ?? "Run Script"
         settingsTarget = jsonDictionary.json(atKeyPath: "settingsTarget")
+        shell = jsonDictionary.json(atKeyPath: "shell")
     }
 }
 
@@ -409,6 +415,7 @@ extension Scheme.ExecutionAction: JSONEncodable {
             "script": script,
             "name": name,
             "settingsTarget": settingsTarget,
+            "shell": shell
         ]
     }
 }
@@ -616,6 +623,7 @@ extension Scheme.Test: JSONObjectConvertible {
         customLLDBInit = jsonDictionary.json(atKeyPath: "customLLDBInit")
         captureScreenshotsAutomatically = jsonDictionary.json(atKeyPath: "captureScreenshotsAutomatically") ?? Scheme.Test.captureScreenshotsAutomaticallyDefault
         deleteScreenshotsWhenEachTestSucceeds = jsonDictionary.json(atKeyPath: "deleteScreenshotsWhenEachTestSucceeds") ?? Scheme.Test.deleteScreenshotsWhenEachTestSucceedsDefault
+        macroExpansion = jsonDictionary.json(atKeyPath: "macroExpansion")
     }
 }
 
@@ -632,6 +640,7 @@ extension Scheme.Test: JSONEncodable {
             "language": language,
             "region": region,
             "coverageTargets": coverageTargets.map { $0.reference },
+            "macroExpansion": macroExpansion
         ]
 
         if gatherCoverageData != Scheme.Test.gatherCoverageDataDefault {

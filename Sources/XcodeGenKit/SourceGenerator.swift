@@ -18,7 +18,6 @@ class SourceGenerator {
     private var fileReferencesByPath: [String: PBXFileElement] = [:]
     private var groupsByPath: [Path: PBXGroup] = [:]
     private var variantGroupsByPath: [Path: PBXVariantGroup] = [:]
-    private var localPackageGroup: PBXGroup?
 
     private let project: Project
     let pbxProj: PBXProj
@@ -55,21 +54,13 @@ class SourceGenerator {
     }
 
     func createLocalPackage(path: Path, group: Path?) throws {
-        var pbxGroup: PBXGroup?
-        
-        if let location = group {
-            let fullLocationPath = project.basePath + location
-            pbxGroup = getGroup(path: fullLocationPath, mergingChildren: [], createIntermediateGroups: true, hasCustomParent: false, isBaseGroup: true)
+        var parentGroup: String = project.options.localPackagesGroup ?? "Packages"
+        if let group {
+          parentGroup = group.string
         }
-        
-        if localPackageGroup == nil && group == nil {
-            let groupName = project.options.localPackagesGroup ?? "Packages"
-            localPackageGroup = addObject(PBXGroup(sourceTree: .sourceRoot, name: groupName))
-            rootGroups.insert(localPackageGroup!)
-        }
-        
+
         let absolutePath = project.basePath + path.normalize()
-        
+
         // Get the local package's relative path from the project root
         let fileReferencePath = try? absolutePath.relativePath(from: projectDirectory ?? project.basePath).string
 
@@ -81,10 +72,12 @@ class SourceGenerator {
                 path: fileReferencePath
             )
         )
-        if let pbxGroup = pbxGroup {
-            pbxGroup.children.append(fileReference)
+
+        if parentGroup == "" {
+            rootGroups.insert(fileReference)
         } else {
-            localPackageGroup!.children.append(fileReference)
+            let parentGroups = parentGroup.components(separatedBy: "/")
+            createParentGroups(parentGroups, for: fileReference)
         }
     }
 
@@ -94,8 +87,16 @@ class SourceGenerator {
     ///   - targetType: The type of target that the source files should belong to.
     ///   - sources: The array of sources defined as part of the targets spec.
     ///   - buildPhases: A dictionary containing any build phases that should be applied to source files at specific paths in the event that the associated `TargetSource` didn't already define a `buildPhase`. Values from this dictionary are used in cases where the project generator knows more about a file than the spec/filesystem does (i.e if the file should be treated as the targets Info.plist and so on).
-    func getAllSourceFiles(targetType: PBXProductType, sources: [TargetSource], buildPhases: [Path : BuildPhaseSpec], platform: Platform) throws -> [SourceFile] {
-        try sources.flatMap { try getSourceFiles(targetType: targetType, targetSource: $0, buildPhases: buildPhases, platform: platform) }
+    func getAllSourceFiles(targetType: PBXProductType, sources: [TargetSource], platform: Platform, buildPhases: [Path : BuildPhaseSpec]) throws -> [SourceFile] {
+        try sources
+            .flatMap {
+                try getSourceFiles(
+                    targetType: targetType,
+                    targetSource: $0,
+                    platform: platform,
+                    buildPhases: buildPhases
+                )
+            }
     }
 
     // get groups without build files. Use for Project.fileGroups
@@ -110,7 +111,23 @@ class SourceGenerator {
             return nil
         }
     }
-
+    
+    private func makeDestinationFilters(for path: Path, with filters: [SupportedDestination]?, or inferDestinationFiltersByPath: Bool?) -> [String]? {
+        if let filters = filters, !filters.isEmpty {
+            return filters.map { $0.string }
+        } else if inferDestinationFiltersByPath == true {
+            for supportedDestination in SupportedDestination.allCases {
+                let regex1 = try? NSRegularExpression(pattern: "\\/\(supportedDestination)\\/", options: .caseInsensitive)
+                let regex2 = try? NSRegularExpression(pattern: "\\_\(supportedDestination)\\.swift$", options: .caseInsensitive)
+                
+                if regex1?.isMatch(to: path.string) == true || regex2?.isMatch(to: path.string) == true {
+                    return [supportedDestination.string]
+                }
+            }
+        }
+        return nil
+    }
+    
     func generateSourceFile(targetType: PBXProductType, targetSource: TargetSource, path: Path, fileReference: PBXFileElement? = nil, buildPhases: [Path: BuildPhaseSpec]) -> SourceFile {
         let fileReference = fileReference ?? fileReferencesByPath[path.string.lowercased()]!
         var settings: [String: Any] = [:]
@@ -175,8 +192,10 @@ class SourceGenerator {
         if chosenBuildPhase == .resources && !assetTags.isEmpty {
             settings["ASSET_TAGS"] = assetTags
         }
-
-        let buildFile = PBXBuildFile(file: fileReference, settings: settings.isEmpty ? nil : settings)
+        
+        let platforms = makeDestinationFilters(for: path, with: targetSource.destinationFilters, or: targetSource.inferDestinationFiltersByPath)
+        
+        let buildFile = PBXBuildFile(file: fileReference, settings: settings.isEmpty ? nil : settings, platformFilters: platforms)
         return SourceFile(
             path: path,
             fileReference: fileReference,
@@ -403,7 +422,7 @@ class SourceGenerator {
             && !excludePaths.contains(path)
             && !isExcludedPattern(path)
             // If includes is empty, it's included. If it's not empty, the path either needs to match exactly, or it needs to be a direct parent of an included path.
-        && ((includePaths?.value.isEmpty ?? true) || includePaths.flatMap { _isIncludedPathSorted(path, sortedPaths: $0) } ?? true)
+            && (includePaths.flatMap { _isIncludedPathSorted(path, sortedPaths: $0) } ?? true)
     }
     
     private func _isIncludedPathSorted(_ path: Path, sortedPaths: SortedArray<Path>) -> Bool {
@@ -451,6 +470,7 @@ class SourceGenerator {
 
         let createIntermediateGroups = targetSource.createIntermediateGroups ?? project.options.createIntermediateGroups
         let nonLocalizedChildren = children.filter { $0.extension != "lproj" }
+        let stringCatalogChildren = children.filter { $0.extension == "xcstrings" }
 
         let directories = nonLocalizedChildren
             .filter {
@@ -516,6 +536,15 @@ class SourceGenerator {
         }()
 
         knownRegions.formUnion(localisedDirectories.map { $0.lastComponentWithoutExtension })
+        
+        // XCode 15 - Detect known regions from locales present in string catalogs
+        
+        let stringCatalogsLocales = stringCatalogChildren
+            .compactMap { StringCatalog(from: $0) }
+            .reduce(Set<String>(), { partialResult, stringCatalog in
+                partialResult.union(stringCatalog.includedLocales)
+            })
+        knownRegions.formUnion(stringCatalogsLocales)
 
         // create variant groups of the base localisation first
         var baseLocalisationVariantGroups: [PBXVariantGroup] = []
@@ -601,7 +630,7 @@ class SourceGenerator {
     }
 
     /// creates source files
-    private func getSourceFiles(targetType: PBXProductType, targetSource: TargetSource, buildPhases: [Path: BuildPhaseSpec], platform: Platform? = nil) throws -> [SourceFile] {
+    private func getSourceFiles(targetType: PBXProductType, targetSource: TargetSource, platform: Platform? = nil, buildPhases: [Path: BuildPhaseSpec]) throws -> [SourceFile] {
 
         // generate excluded paths
         let path = project.basePath + targetSource.path
