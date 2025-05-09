@@ -174,7 +174,7 @@ public class SchemeGenerator {
             switch target.location {
             case .package(let packageName):
                 guard let package = self.project.getPackage(packageName),
-                      case let .local(path, _) = package else {
+                      case let .local(path, _, _) = package else {
                     throw SchemeGenerationError.missingPackage(packageName)
                 }
                 return XCScheme.BuildableReference(
@@ -318,6 +318,7 @@ public class SchemeGenerator {
             language: scheme.test?.language,
             region: scheme.test?.region,
             systemAttachmentLifetime: scheme.test?.systemAttachmentLifetime,
+            preferredScreenCaptureFormat: scheme.test?.preferredScreenCaptureFormat,
             customLLDBInitFile: scheme.test?.customLLDBInit
         )
 
@@ -358,7 +359,7 @@ public class SchemeGenerator {
             allowLocationSimulation: allowLocationSimulation,
             locationScenarioReference: locationScenarioReference,
             enableGPUFrameCaptureMode: scheme.run?.enableGPUFrameCaptureMode ?? XCScheme.LaunchAction.defaultGPUFrameCaptureMode,
-            enableGPUValidationMode: scheme.run?.enableGPUValidationMode ?? XCScheme.LaunchAction.defaultGPUValidationMode,
+            disableGPUValidationMode: !(scheme.run?.enableGPUValidationMode ?? Scheme.Run.enableGPUValidationModeDefault),
             disableMainThreadChecker: scheme.run?.disableMainThreadChecker ?? Scheme.Run.disableMainThreadCheckerDefault,
             disablePerformanceAntipatternChecker: scheme.run?.disableThreadPerformanceChecker ?? Scheme.Run.disableThreadPerformanceCheckerDefault,
             stopOnEveryMainThreadCheckerIssue: scheme.run?.stopOnEveryMainThreadCheckerIssue ?? Scheme.Run.stopOnEveryMainThreadCheckerIssueDefault,

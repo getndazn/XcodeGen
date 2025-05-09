@@ -131,6 +131,7 @@ public struct Scheme: Equatable {
         public static let stopOnEveryMainThreadCheckerIssueDefault = false
         public static let disableThreadPerformanceCheckerDefault = false
         public static let debugEnabledDefault = true
+        public static let enableGPUValidationModeDefault = true
 
         public var config: String?
         public var commandLineArguments: [String: Bool]
@@ -138,7 +139,7 @@ public struct Scheme: Equatable {
         public var postActions: [ExecutionAction]
         public var environmentVariables: [XCScheme.EnvironmentVariable]
         public var enableGPUFrameCaptureMode: XCScheme.LaunchAction.GPUFrameCaptureMode
-        public var enableGPUValidationMode: XCScheme.LaunchAction.GPUValidationMode
+        public var enableGPUValidationMode: Bool
         public var disableMainThreadChecker: Bool
         public var stopOnEveryMainThreadCheckerIssue: Bool
         public var disableThreadPerformanceChecker: Bool
@@ -161,7 +162,7 @@ public struct Scheme: Equatable {
             postActions: [ExecutionAction] = [],
             environmentVariables: [XCScheme.EnvironmentVariable] = [],
             enableGPUFrameCaptureMode: XCScheme.LaunchAction.GPUFrameCaptureMode = XCScheme.LaunchAction.defaultGPUFrameCaptureMode,
-            enableGPUValidationMode: XCScheme.LaunchAction.GPUValidationMode = XCScheme.LaunchAction.GPUValidationMode.enabled,
+            enableGPUValidationMode: Bool = enableGPUValidationModeDefault,
             disableMainThreadChecker: Bool = disableMainThreadCheckerDefault,
             stopOnEveryMainThreadCheckerIssue: Bool = stopOnEveryMainThreadCheckerIssueDefault,
             disableThreadPerformanceChecker: Bool = disableThreadPerformanceCheckerDefault,
@@ -203,6 +204,7 @@ public struct Scheme: Equatable {
         public static let debugEnabledDefault = true
         public static let captureScreenshotsAutomaticallyDefault = true
         public static let deleteScreenshotsWhenEachTestSucceedsDefault = true
+        public static let preferredScreenCaptureFormatDefault = XCScheme.TestAction.ScreenCaptureFormat.screenRecording
 
         public var config: String?
         public var gatherCoverageData: Bool
@@ -221,6 +223,7 @@ public struct Scheme: Equatable {
         public var deleteScreenshotsWhenEachTestSucceeds: Bool
         public var testPlans: [TestPlan]
         public var macroExpansion: String?
+        public var preferredScreenCaptureFormat: XCScheme.TestAction.ScreenCaptureFormat
 
         public struct TestTarget: Equatable, ExpressibleByStringLiteral {
             
@@ -288,7 +291,8 @@ public struct Scheme: Equatable {
             customLLDBInit: String? = nil,
             captureScreenshotsAutomatically: Bool = captureScreenshotsAutomaticallyDefault,
             deleteScreenshotsWhenEachTestSucceeds: Bool = deleteScreenshotsWhenEachTestSucceedsDefault,
-            macroExpansion: String? = nil
+            macroExpansion: String? = nil,
+            preferredScreenCaptureFormat: XCScheme.TestAction.ScreenCaptureFormat = preferredScreenCaptureFormatDefault
         ) {
             self.config = config
             self.gatherCoverageData = gatherCoverageData
@@ -307,6 +311,7 @@ public struct Scheme: Equatable {
             self.captureScreenshotsAutomatically = captureScreenshotsAutomatically
             self.deleteScreenshotsWhenEachTestSucceeds = deleteScreenshotsWhenEachTestSucceeds
             self.macroExpansion = macroExpansion
+            self.preferredScreenCaptureFormat = preferredScreenCaptureFormat
         }
 
         public var shouldUseLaunchSchemeArgsEnv: Bool {
@@ -484,10 +489,16 @@ extension Scheme.Run: JSONObjectConvertible {
         } else {
             enableGPUFrameCaptureMode = XCScheme.LaunchAction.defaultGPUFrameCaptureMode
         }
+
+        // support deprecated gpuValidationMode enum that was removed from XcodeProj
         if let gpuValidationMode: String = jsonDictionary.json(atKeyPath: "enableGPUValidationMode") {
-            enableGPUValidationMode = XCScheme.LaunchAction.GPUValidationMode.fromJSONValue(gpuValidationMode)
+            switch gpuValidationMode {
+            case "enabled", "extended": enableGPUValidationMode = true
+            case "disabled": enableGPUValidationMode = false
+            default: enableGPUValidationMode = Scheme.Run.enableGPUValidationModeDefault
+            }
         } else {
-            enableGPUValidationMode = XCScheme.LaunchAction.defaultGPUValidationMode
+            enableGPUValidationMode = jsonDictionary.json(atKeyPath: "enableGPUValidationMode") ?? Scheme.Run.enableGPUValidationModeDefault
         }
         disableMainThreadChecker = jsonDictionary.json(atKeyPath: "disableMainThreadChecker") ?? Scheme.Run.disableMainThreadCheckerDefault
         stopOnEveryMainThreadCheckerIssue = jsonDictionary.json(atKeyPath: "stopOnEveryMainThreadCheckerIssue") ?? Scheme.Run.stopOnEveryMainThreadCheckerIssueDefault
@@ -535,8 +546,8 @@ extension Scheme.Run: JSONEncodable {
             dict["enableGPUFrameCaptureMode"] = enableGPUFrameCaptureMode.toJSONValue()
         }
         
-        if enableGPUValidationMode != XCScheme.LaunchAction.defaultGPUValidationMode {
-            dict["enableGPUValidationMode"] = enableGPUValidationMode.toJSONValue()
+        if enableGPUValidationMode != Scheme.Run.enableGPUValidationModeDefault {
+            dict["enableGPUValidationMode"] = enableGPUValidationMode
         }
 
         if disableMainThreadChecker != Scheme.Run.disableMainThreadCheckerDefault {
@@ -624,6 +635,7 @@ extension Scheme.Test: JSONObjectConvertible {
         captureScreenshotsAutomatically = jsonDictionary.json(atKeyPath: "captureScreenshotsAutomatically") ?? Scheme.Test.captureScreenshotsAutomaticallyDefault
         deleteScreenshotsWhenEachTestSucceeds = jsonDictionary.json(atKeyPath: "deleteScreenshotsWhenEachTestSucceeds") ?? Scheme.Test.deleteScreenshotsWhenEachTestSucceedsDefault
         macroExpansion = jsonDictionary.json(atKeyPath: "macroExpansion")
+        preferredScreenCaptureFormat = jsonDictionary.json(atKeyPath: "preferredScreenCaptureFormat") ?? Scheme.Test.preferredScreenCaptureFormatDefault
     }
 }
 
@@ -665,6 +677,10 @@ extension Scheme.Test: JSONEncodable {
 
         if deleteScreenshotsWhenEachTestSucceeds != Scheme.Test.deleteScreenshotsWhenEachTestSucceedsDefault {
             dict["deleteScreenshotsWhenEachTestSucceeds"] = deleteScreenshotsWhenEachTestSucceeds
+        }
+
+        if preferredScreenCaptureFormat != Scheme.Test.preferredScreenCaptureFormatDefault {
+            dict["preferredScreenCaptureFormat"] = preferredScreenCaptureFormat.toJSONValue()
         }
 
         return dict
@@ -878,7 +894,7 @@ extension Scheme.Build: JSONEncodable {
     }
 }
 
-extension BuildType: JSONPrimitiveConvertible {
+extension BuildType: JSONUtilities.JSONPrimitiveConvertible {
 
     public typealias JSONType = String
 
@@ -910,7 +926,7 @@ extension BuildType: JSONEncodable {
     }
 }
 
-extension XCScheme.EnvironmentVariable: JSONObjectConvertible {
+extension XCScheme.EnvironmentVariable: JSONUtilities.JSONObjectConvertible {
     public static let enabledDefault = true
 
     private static func parseValue(_ value: Any) -> String {
@@ -993,28 +1009,8 @@ extension XCScheme.LaunchAction.GPUFrameCaptureMode: JSONEncodable {
     }
 }
 
-extension XCScheme.LaunchAction.GPUValidationMode: JSONEncodable {
+extension XCScheme.TestAction.ScreenCaptureFormat: JSONEncodable {
     public func toJSONValue() -> Any {
-        switch self {
-        case .enabled:
-            return "enabled"
-        case .disabled:
-            return "disabled"
-        case .extended:
-            return "extended"
-        }
-    }
-    
-    static func fromJSONValue(_ string: String) -> XCScheme.LaunchAction.GPUValidationMode {
-        switch string {
-        case "enabled":
-            return .enabled
-        case "disabled":
-            return .disabled
-        case "extended":
-            return .extended
-        default:
-            fatalError("Invalid enableGPUValidationMode value. Valid values are: enable, disable, extended")
-        }
+        rawValue
     }
 }
