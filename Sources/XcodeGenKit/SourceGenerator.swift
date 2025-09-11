@@ -13,6 +13,10 @@ struct SourceFile {
 
 class SourceGenerator {
 
+     private var currentPlatform: Platform?
+    private var currentTargetName: String?
+    private var currentTargetSource: TargetSource?
+
     var rootGroups: Set<PBXFileElement> = []
     private let projectDirectory: Path?
     private var fileReferencesByPath: [String: PBXFileElement] = [:]
@@ -417,14 +421,31 @@ class SourceGenerator {
     }
 
     /// Checks whether the path is not in any default or TargetSource excludes
-    func isIncludedPath(_ path: Path, excludePaths: Set<Path>, includePaths: SortedArray<Path>?) -> Bool {
-        return !defaultExcludedFiles.contains(where: { path.lastComponent == $0 })
-            && !(path.extension.map(defaultExcludedExtensions.contains) ?? false)
-            && !excludePaths.contains(path)
-            && !isExcludedPattern(path)
-            // If includes is empty, it's included. If it's not empty, the path either needs to match exactly, or it needs to be a direct parent of an included path.
-            && (includePaths.flatMap { _isIncludedPathSorted(path, sortedPaths: $0) } ?? true)
-    }
+func isIncludedPath(_ path: Path, excludePaths: Set<Path>, includePaths: SortedArray<Path>?) -> Bool {
+    if defaultExcludedFiles.contains(where: { path.lastComponent == $0 }) { return false }
+    if path.extension.map(defaultExcludedExtensions.contains) ?? false { return false }
+    if excludePaths.contains(path) { return false }
+    if isExcludedPattern(path) { return false }
+    if let sorted = includePaths, !_isIncludedPathSorted(path, sortedPaths: sorted) { return false }
+
+    // --- AppGroup + platform ---
+    let knownGroups = collectAllAppGroups()
+    let (fileGroup, filePlatform) = extractAppGroupAndPlatform(from: path, knownGroups: knownGroups)
+
+    let targetGroup = resolvedAppGroup(
+        for: currentTargetName ?? "",
+        targetSource: currentTargetSource ?? TargetSource(path: "")
+    )?.lowercased()
+
+    let groupOK = (fileGroup == nil) || (targetGroup == nil) || (fileGroup == targetGroup)
+    let platformOK: Bool = {
+        guard let fp = filePlatform else { return true }
+        guard let tp = currentPlatform else { return true }
+        return fp == tp
+    }()
+
+    return groupOK && platformOK
+}
     
     private func _isIncludedPathSorted(_ path: Path, sortedPaths: SortedArray<Path>) -> Bool {
         guard let idx = sortedPaths.firstIndex(where: { $0 >= path }) else { return false }
@@ -632,6 +653,15 @@ class SourceGenerator {
 
     /// creates source files
     private func getSourceFiles(targetName: String, targetType: PBXProductType, targetSource: TargetSource, platform: Platform? = nil, buildPhases: [Path: BuildPhaseSpec]) throws -> [SourceFile] {
+
+        self.currentPlatform = platform
+    self.currentTargetName = targetName
+    self.currentTargetSource = targetSource
+    defer {
+        self.currentPlatform = nil
+        self.currentTargetName = nil
+        self.currentTargetSource = nil
+    }
 
         // generate excluded paths
         let path = project.basePath + targetSource.path
@@ -946,5 +976,27 @@ private func resolvedAppGroup(for targetName: String, targetSource: TargetSource
 
     // jeśli nie pasuje -> brak appGroup (shared)
     return nil
+}
+
+func extractAppGroupAndPlatform(from path: Path, knownGroups: Set<String>) -> (String?, Platform?) {
+    let comps = path.components.map { $0.lowercased() }
+    var group: String?
+    var plat: Platform?
+
+    for c in comps {
+        if knownGroups.contains(c) {
+            group = c
+        } else if c == "ios" {
+            plat = .iOS
+        } else if c == "tvos" {
+            plat = .tvOS
+        }
+    }
+    return (group, plat)
+}
+
+private func collectAllAppGroups() -> Set<String> {
+    // wpisz tu wszystkie nazwy app-grup, jakie występują w katalogach
+    return ["kayo", "dazn"].map { $0.lowercased() }.reduce(into: Set<String>()) { $0.insert($1) }
 }
 }
