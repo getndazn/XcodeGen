@@ -87,10 +87,11 @@ class SourceGenerator {
     ///   - targetType: The type of target that the source files should belong to.
     ///   - sources: The array of sources defined as part of the targets spec.
     ///   - buildPhases: A dictionary containing any build phases that should be applied to source files at specific paths in the event that the associated `TargetSource` didn't already define a `buildPhase`. Values from this dictionary are used in cases where the project generator knows more about a file than the spec/filesystem does (i.e if the file should be treated as the targets Info.plist and so on).
-    func getAllSourceFiles(targetType: PBXProductType, sources: [TargetSource], platform: Platform, buildPhases: [Path : BuildPhaseSpec]) throws -> [SourceFile] {
+    func getAllSourceFiles(targetName: String, targetType: PBXProductType, sources: [TargetSource], platform: Platform, buildPhases: [Path : BuildPhaseSpec]) throws -> [SourceFile] {
         try sources
             .flatMap {
                 try getSourceFiles(
+                    targetName: targetName,
                     targetType: targetType,
                     targetSource: $0,
                     platform: platform,
@@ -101,7 +102,7 @@ class SourceGenerator {
 
     // get groups without build files. Use for Project.fileGroups
     func getFileGroups(path: String) throws {
-        _ = try getSourceFiles(targetType: .none, targetSource: TargetSource(path: path), buildPhases: [:])
+        _ = try getSourceFiles(targetName: "", targetType: .none, targetSource: TargetSource(path: path), buildPhases: [:])
     }
 
     func getFileType(path: Path) -> FileType? {
@@ -630,19 +631,28 @@ class SourceGenerator {
     }
 
     /// creates source files
-    private func getSourceFiles(targetType: PBXProductType, targetSource: TargetSource, platform: Platform? = nil, buildPhases: [Path: BuildPhaseSpec]) throws -> [SourceFile] {
+    private func getSourceFiles(targetName: String, targetType: PBXProductType, targetSource: TargetSource, platform: Platform? = nil, buildPhases: [Path: BuildPhaseSpec]) throws -> [SourceFile] {
 
         // generate excluded paths
         let path = project.basePath + targetSource.path
         let excludePaths = getSourceMatches(targetSource: targetSource, patterns: targetSource.excludes)
         excludePatterns = targetSource.excludePatterns
-        if let platform = platform {
-            var platforms = Set(Platform.allCases)
-            platforms.remove(platform)
-            excludePatterns += try platforms.map({
-                try excludePatternsForPlatform($0)
-            })
-        }
+var allPatterns: [NSRegularExpression] = []
+
+// 1) Wykluczenia platformowe
+if let platform = platform {
+    var otherPlatforms = Set(Platform.allCases)
+    otherPlatforms.remove(platform)
+    let platformPatterns = try otherPlatforms.map { try excludePatternsForPlatform($0) }
+    allPatterns.append(contentsOf: platformPatterns)
+}
+
+// 2) Wykluczenia appGroup
+let appGroupPatterns = try excludePatternsForAppGroup(targetName: targetName, targetSource: targetSource)
+allPatterns.append(contentsOf: appGroupPatterns)
+
+// 3) Przypisz do pola `excludePatterns`
+excludePatterns = allPatterns
         // generate included paths. Excluded paths will override this.
         let includePaths = targetSource.includes.isEmpty ? nil : getSourceMatches(targetSource: targetSource, patterns: targetSource.includes)
 
@@ -845,4 +855,96 @@ class SourceGenerator {
         }
         return versionedModels.first(where: { $0.lastComponent == versionString })
     }
+}
+
+
+extension SourceGenerator {
+        /// Build exclusion patterns for all other appGroups than the one resolved for this target.
+/// If no app-specific folder exists under the source root, returns [] (shared code).
+/// Wykluczaj tylko inne app-grupy; jeśli w danym źródle nie ma katalogów app-grup → shared (bez wykluczeń).
+private func excludePatternsForAppGroup(
+    targetName: String,
+    targetSource: TargetSource
+) throws -> [NSRegularExpression] {
+    // 1) Rozpoznaj bieżącą appGroup dla tego targetu (z YML lub z nazwy targetu)
+    guard let resolvedRaw = resolvedAppGroup(for: targetName, targetSource: targetSource) else {
+        return [] // brak appGroup → shared
+    }
+    let resolved = resolvedRaw.lowercased()
+
+    // 2) Zbierz znane app-grupy z projektu (z nazw targetów i z YML)
+    var projectAppGroups = Set<String>()
+    for t in project.targets {
+        if let g = resolvedAppGroup(for: t.name, targetSource: TargetSource(path: "")) {
+            projectAppGroups.insert(g.lowercased())
+        }
+        for s in t.sources {
+            if let g = s.appGroup?.trimmingCharacters(in: .whitespacesAndNewlines), !g.isEmpty {
+                projectAppGroups.insert(g.lowercased())
+            }
+        }
+    }
+    // usuń nazwy zarezerwowane / wspólne
+    projectAppGroups.subtract(["common", "ios", "tvos", ""])
+
+    // 3) Sprawdź, które z tych ZNANYCH app-grup realnie występują w TYM source root
+    var folderNames = Set<String>()
+    let root = project.basePath + Path(targetSource.path)
+    if root.exists, root.isDirectory, let desc = try? root.recursiveChildren() {
+        for d in desc where d.isDirectory {
+            folderNames.insert(d.lastComponent.lowercased())
+        }
+    }
+    let localAppGroups = projectAppGroups.intersection(folderNames)
+
+    // 4) Jeśli w tym źródle nie ma żadnych katalogów app-grup → shared (nic nie wykluczamy)
+    if localAppGroups.isEmpty {
+        if ProcessInfo.processInfo.environment["DEBUG_EXCLUDES"] != nil {
+            print("[DEBUG_EXCLUDES] target=\(targetName) resolved=\(resolved) → brak lokalnych appGroup, wszystko shared")
+        }
+        return []
+    }
+
+    // 5) Zbuduj regexy wykluczające tylko inne app-grupy (poza bieżącą)
+    var patterns: [NSRegularExpression] = []
+    for other in localAppGroups where other != resolved {
+        let escaped = NSRegularExpression.escapedPattern(for: other)
+        let pattern = "(?:^|/)\(escaped)(?:/|$)" // dopasuj segment katalogu (case-insensitive)
+        let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        patterns.append(regex)
+    }
+
+    // if ProcessInfo.processInfo.environment["DEBUG_EXCLUDES"] != nil {
+        print("[DEBUG_EXCLUDES] target=\(targetName) resolved=\(resolved)")
+        print("[DEBUG_EXCLUDES] localAppGroups=\(localAppGroups.sorted())")
+        print("[DEBUG_EXCLUDES] excludePatterns=\(patterns.map { $0.pattern })")
+    // }
+
+    return patterns
+}
+
+/// Extract appGroup only if target name matches pattern "..._<appGroup>_(iOS|tvOS)".
+/// Otherwise return nil (shared).
+private func resolvedAppGroup(for targetName: String, targetSource: TargetSource) -> String? {
+    // explicit z YML ma pierwszeństwo
+    if let explicit = targetSource.appGroup?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !explicit.isEmpty {
+        return explicit.lowercased()
+    }
+
+    let lower = targetName.lowercased()
+
+    // regex: co najmniej dwa segmenty oddzielone "_", ostatni = ios/tvos
+    // przykład: daznUI_DAZN_iOS -> "dazn"
+    let pattern = #"(?i)^[^_]+_([^_]+)_(ios|tvos)$"#
+    if let regex = try? NSRegularExpression(pattern: pattern),
+       let m = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+       m.numberOfRanges >= 2,
+       let r = Range(m.range(at: 1), in: lower) {
+        return String(lower[r]).lowercased()
+    }
+
+    // jeśli nie pasuje -> brak appGroup (shared)
+    return nil
+}
 }

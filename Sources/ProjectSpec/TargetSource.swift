@@ -26,6 +26,7 @@ public struct TargetSource: Equatable {
     public var resourceTags: [String]
     public var inferDestinationFiltersByPath: Bool?
     public var destinationFilters: [SupportedDestination]?
+    public var appGroup: String? = nil
 
     public enum HeaderVisibility: String {
         case `public`
