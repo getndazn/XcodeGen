@@ -459,32 +459,27 @@ class SourceGenerator {
   }
 
   /// Checks whether the path is not in any default or TargetSource excludes
-  func isIncludedPath(_ path: Path, excludePaths: Set<Path>, includePaths: SortedArray<Path>?)
-    -> Bool
-  {
+  func isIncludedPath(
+    _ path: Path,
+    excludePaths: Set<Path>,
+    includePaths: SortedArray<Path>?
+  ) -> Bool {
+
     if defaultExcludedFiles.contains(where: { path.lastComponent == $0 }) { return false }
     if path.extension.map(defaultExcludedExtensions.contains) ?? false { return false }
     if excludePaths.contains(path) { return false }
     if isExcludedPattern(path) { return false }
     if let sorted = includePaths, !_isIncludedPathSorted(path, sortedPaths: sorted) { return false }
 
-    // --- AppGroup + platform ---
-    let knownGroups = collectAllAppGroups()
-    let (fileGroup, filePlatform) = extractAppGroupAndPlatform(from: path, knownGroups: knownGroups)
+    // brand + platform
+    var platformOK = true
+    if let plat = currentPlatform {
+      let comps = path.components.map { $0.lowercased() }
+      if comps.contains("ios") && plat != .iOS { platformOK = false }
+      if comps.contains("tvos") && plat != .tvOS { platformOK = false }
+    }
 
-    let targetGroup = resolvedAppGroup(
-      for: currentTargetName ?? "",
-      targetSource: currentTargetSource ?? TargetSource(path: "")
-    )?.lowercased()
-
-    let groupOK = (fileGroup == nil) || (targetGroup == nil) || (fileGroup == targetGroup)
-    let platformOK: Bool = {
-      guard let fp = filePlatform else { return true }
-      guard let tp = currentPlatform else { return true }
-      return fp == tp
-    }()
-
-    return groupOK && platformOK
+    return platformOK
   }
 
   private func _isIncludedPathSorted(_ path: Path, sortedPaths: SortedArray<Path>) -> Bool {
@@ -745,9 +740,9 @@ class SourceGenerator {
       allPatterns.append(contentsOf: platformPatterns)
     }
 
-    // 2) AppGroups exclusions
-    let appGroupPatterns = try excludePatternsForAppGroup(
-      targetName: targetName, targetSource: targetSource)
+    // 2) Brands exclusions
+    let appGroupPatterns = try excludePatternsForBrand(
+      projectName: project.name, targetSource: targetSource)
     allPatterns.append(contentsOf: appGroupPatterns)
 
     excludePatterns = allPatterns
@@ -964,117 +959,45 @@ class SourceGenerator {
 }
 
 extension SourceGenerator {
-  /// Build exclusion patterns for all other appGroups than the one resolved for this target.
-  /// If no app-specific folder exists under the source root, returns [] (shared code).
-  private func excludePatternsForAppGroup(
-    targetName: String,
+
+  private func excludePatternsForBrand(
+    projectName: String,
     targetSource: TargetSource
   ) throws -> [NSRegularExpression] {
-    // 1) Rozpoznaj bieżącą appGroup dla tego targetu (z YML lub z nazwy targetu)
-    guard let resolvedRaw = resolvedAppGroup(for: targetName, targetSource: targetSource) else {
-      return []  // brak appGroup → shared
-    }
-    let resolved = resolvedRaw.lowercased()
 
-    // 2) Take knows appGroups from the project (from targets and YMLs)
-    var projectAppGroups = Set<String>()
-    for t in project.targets {
-      if let g = resolvedAppGroup(for: t.name, targetSource: TargetSource(path: "")) {
-        projectAppGroups.insert(g.lowercased())
-      }
-      for s in t.sources {
-        if let g = s.appGroup?.trimmingCharacters(in: .whitespacesAndNewlines), !g.isEmpty {
-          projectAppGroups.insert(g.lowercased())
-        }
-      }
-    }
-    // TODO: Validate, as maybe not required anymore
-    projectAppGroups.subtract(["common", "ios", "tvos", ""])
+    let currentBrand = projectName.lowercased()
+    let knownBrands: Set<String> = ["dazn", "base", "kayo"]  // TODO: Can be done automatically
 
-    // 3) Let's check if any know appGroup was found for this target
-    var folderNames = Set<String>()
     let root = project.basePath + Path(targetSource.path)
-    if root.exists, root.isDirectory, let desc = try? root.recursiveChildren() {
-      for d in desc where d.isDirectory {
-        folderNames.insert(d.lastComponent.lowercased())
-      }
-    }
-    let localAppGroups = projectAppGroups.intersection(folderNames)
+    guard root.exists, root.isDirectory else { return [] }
 
-    // 4) In case if no group was found, then treat all as common/shared code
-    if localAppGroups.isEmpty {
-      if ProcessInfo.processInfo.environment["DEBUG_EXCLUDES"] != nil {
-        print(
-          "[DEBUG_EXCLUDES] target=\(targetName) resolved=\(resolved) → no groups, all is shared")
-      }
+    let children = (try? root.children()) ?? []
+    let presentBrands = Set(
+      children
+        .filter { $0.isDirectory }
+        .map { $0.lastComponent.lowercased() }
+        .filter { knownBrands.contains($0) }
+    )
+
+    if presentBrands.isEmpty {
       return []
     }
 
-    // 5) Exclude groups which doesn't meet current one
     var patterns: [NSRegularExpression] = []
-    for other in localAppGroups where other != resolved {
+    for other in presentBrands where other != currentBrand {
       let escaped = NSRegularExpression.escapedPattern(for: other)
-      let pattern = "(?:^|/)\(escaped)(?:/|$)"  // dopasuj segment katalogu (case-insensitive)
-      let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-      patterns.append(regex)
+      let pattern = "(?:^|/)\(escaped)(?:/|$)"
+      patterns.append(
+        try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+      )
     }
 
-    // if ProcessInfo.processInfo.environment["DEBUG_EXCLUDES"] != nil {
-    print("[DEBUG_EXCLUDES] target=\(targetName) resolved=\(resolved)")
-    print("[DEBUG_EXCLUDES] localAppGroups=\(localAppGroups.sorted())")
-    print("[DEBUG_EXCLUDES] excludePatterns=\(patterns.map { $0.pattern })")
-    // }
+    if ProcessInfo.processInfo.environment["DEBUG_EXCLUDES"] != nil {
+      print("[DEBUG_EXCLUDES] project=\(projectName)")
+      print("[DEBUG_EXCLUDES] presentBrands=\(presentBrands)")
+      print("[DEBUG_EXCLUDES] excludePatterns=\(patterns.map { $0.pattern })")
+    }
 
     return patterns
-  }
-
-  /// Extract appGroup only if target name matches pattern "..._<appGroup>_(iOS|tvOS)".
-  /// Otherwise return nil (shared/common).
-  private func resolvedAppGroup(for targetName: String, targetSource: TargetSource) -> String? {
-    // Priority has a group defined in YML (if any)
-    if let explicit = targetSource.appGroup?.trimmingCharacters(in: .whitespacesAndNewlines),
-      !explicit.isEmpty
-    {
-      return explicit.lowercased()
-    }
-
-    let lower = targetName.lowercased()
-
-    // Only accepts pattern like xxxx_YYYY_(iOS|tvOS), where YYYY is the app group and xxxx it's a based target name
-    // Example module_BRAND_ios -> app group = "brand"
-    let pattern = #"(?i)^[^_]+_([^_]+)_(ios|tvos)$"#
-    if let regex = try? NSRegularExpression(pattern: pattern),
-      let m = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
-      m.numberOfRanges >= 2,
-      let r = Range(m.range(at: 1), in: lower)
-    {
-      return String(lower[r]).lowercased()
-    }
-
-    // Treat as shared/common as we don't have any group/brand match
-    return nil
-  }
-
-  func extractAppGroupAndPlatform(from path: Path, knownGroups: Set<String>) -> (String?, Platform?)
-  {
-    let comps = path.components.map { $0.lowercased() }
-    var group: String?
-    var plat: Platform?
-
-    for c in comps {
-      if knownGroups.contains(c) {
-        group = c
-      } else if c == "ios" {
-        plat = .iOS
-      } else if c == "tvos" {
-        plat = .tvOS
-      }
-    }
-    return (group, plat)
-  }
-
-  private func collectAllAppGroups() -> Set<String> {
-    // TODO: Define this as a product new parameter and define this in project.yaml file
-    return ["kayo", "dazn"].map { $0.lowercased() }.reduce(into: Set<String>()) { $0.insert($1) }
   }
 }
